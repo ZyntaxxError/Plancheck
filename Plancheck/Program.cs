@@ -9,6 +9,7 @@
 using System;
 using System.Windows;
 using System.Text;
+using System.Windows.Forms;
 using System.Linq;
 using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
@@ -55,6 +56,7 @@ namespace VMS.TPS         //      Change to VMS.TPS
 				CheckCouchStructure(plan.StructureSet) +
 				CheckSetupField(plan) + "\n" +
 				CheckFieldRules(plan);
+				
 
 				MessageBox.Show(message);
 
@@ -141,7 +143,7 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			}
 			else if (IsPlanSRT(plan) && !cIntent.Equals("SRT"))
 			{
-				cResults = cResults + "** Change course intent to SRT!";
+				cResults += "** Change course intent to SRT!";
 			}
 			return cResults + "\n";
 		}
@@ -152,12 +154,11 @@ namespace VMS.TPS         //      Change to VMS.TPS
 		public string CheckClinProt(PlanSetup plan)
 		{
 			string cResults = "";
-			int fractionsInProtocol = 0;
 			if (plan.ProtocolID.Length != 0)
 			{
-				int protocolFractionIndex = plan.ProtocolID.IndexOf('#');                   // find the index of the symbol indicating nr of fractions
+				int protocolFractionIndex = plan.ProtocolID.IndexOf('#');										// find the index of the symbol indicating nr of fractions
 				string protocolFrNrInfo = plan.ProtocolID.Substring(protocolFractionIndex - 2, 2).Trim();       // retrieve the two characters before the #, and remove whitespaces
-				if (Int32.TryParse(protocolFrNrInfo, out fractionsInProtocol))                  // try parsing it to int and, if successful, compare to plan fractions
+				if (Int32.TryParse(protocolFrNrInfo, out int fractionsInProtocol))								// try parsing it to int and, if successful, compare to plan fractions
 				{
 					if (fractionsInProtocol != plan.NumberOfFractions)
 					{
@@ -168,6 +169,31 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			return cResults;
 		}
 
+		// ********* 	Targetvolym, referenspunkt *********
+
+		public string CheckPlanProp(PlanSetup plan, StructureSet sSet)
+		{
+			string cResults = "";
+			/*var target = (from s in sSet.Structures
+						  where s.Id == plan.TargetVolumeID
+						  select s);*/
+
+			if (string.IsNullOrEmpty(plan.TargetVolumeID))
+			{
+				cResults = "** No plan target volume selected \n";
+			}
+			else
+			{
+				var target = sSet.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV");
+				if (target == null)
+				{
+					cResults = "** Plan target volume should be of type PTV \n";
+				}
+			}
+			return cResults;
+		}
+
+			   		 	  	  
 
 
 		// ********* 	Kontroll av att bordsstruktur existerar, inte är tom och har korrekt HU 	********* 
@@ -182,8 +208,7 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			{
 				if (s.Id.Contains("CouchSurf") && !s.IsEmpty)
 				{
-					double couchExtHU;
-					s.GetAssignedHU(out couchExtHU);
+					s.GetAssignedHU(out double couchExtHU);
 					if (Math.Round(couchExtHU) == -300)
 					{
 						couchExt = true;
@@ -191,8 +216,7 @@ namespace VMS.TPS         //      Change to VMS.TPS
 				}
 				if (s.Id.Contains("CouchInt") && !s.IsEmpty)
 				{
-					double couchIntHU;
-					s.GetAssignedHU(out couchIntHU);
+					s.GetAssignedHU(out double couchIntHU);
 					if (Math.Round(couchIntHU) == -1000)
 					{
 						couchInt = true;
@@ -205,6 +229,7 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			}
 			return cResult;
 		}
+
 
 
 		// ********* 	Kontroll av Setup-fält, namngivning	********* 
@@ -245,10 +270,9 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			string cResults = "";
 			string trimmedID = beam.Id.Substring(2).Trim();         // start iteration at index 2 (PX index 0 and 1)
 			int gantryAngleInBeamID = 1000;
-			int test = 0;
 			for (int i = 1; i <= trimmedID.Length; i++)
 			{
-				if (Int32.TryParse(trimmedID.Substring(0, i), out test))
+				if (Int32.TryParse(trimmedID.Substring(0, i), out int test))
 				{
 					gantryAngleInBeamID = test;
 				}
@@ -267,10 +291,7 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			return cResults;
 		}
 
-
-
-
-
+			   		 
 
 
 		// ********* 	Kontroll av diverse fältregler och "best practices"	********* 
