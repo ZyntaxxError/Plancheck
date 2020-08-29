@@ -41,6 +41,10 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			{
 				MessageBox.Show("Please select a patient and plan in active context window.");
 			}
+			else if (!context.PlanSetup.IsDoseValid)
+			{
+				MessageBox.Show("Please calculate the plan before check.");
+			}
 			else
 			{
 				Patient patient = context.Patient;
@@ -53,6 +57,7 @@ namespace VMS.TPS         //      Change to VMS.TPS
 				string message =
 				CheckCourseIntent(courseIntent, plan) + "\n" +
 				CheckClinProt(plan) +
+				CheckPlanProp(plan, plan.StructureSet) + 
 				CheckCouchStructure(plan.StructureSet) +
 				CheckSetupField(plan) + "\n" +
 				CheckFieldRules(plan);
@@ -169,32 +174,29 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			return cResults;
 		}
 
-		// ********* 	Targetvolym, referenspunkt *********
+		// ********* 	Targetvolym; kollar att det är valt och av typen PTV, referenspunkt *********
 
 		public string CheckPlanProp(PlanSetup plan, StructureSet sSet)
 		{
 			string cResults = "";
-			/*var target = (from s in sSet.Structures
-						  where s.Id == plan.TargetVolumeID
-						  select s);*/
-
 			if (string.IsNullOrEmpty(plan.TargetVolumeID))
 			{
 				cResults = "** No plan target volume selected \n";
 			}
 			else
 			{
-				Structure target = sSet.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV").FirstOrDefault();
+				// Search for structure in structure set with same id as target volume and checks if type is PTV, defaults to null if criteria not met
+				Structure target = sSet.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV").SingleOrDefault(); 
 				if (target == null)
 				{
-					cResults = "** Plan target volume should be of type PTV \n";
+					cResults = "* Plan target volume should be of type PTV \n";
 				}
 				else
 				{
 					cResults = "Plan target volume: " + target.Id;
 				}
 			}
-			return cResults;
+			return cResults + "\t" + plan.PrimaryReferencePoint.PatientVolumeId;
 		}
 
 			   		 	  	  
@@ -267,7 +269,7 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			return cResults;
 		}
 
-
+		// ********* 	Kontroll av planara Setup-fält (ej namngivna cbct), namngivning efter gantryvinkel	********* 
 
 		public string CheckPlanarSetupFields(Beam beam)
 		{
