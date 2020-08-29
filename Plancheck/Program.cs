@@ -184,10 +184,14 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			}
 			else
 			{
-				var target = sSet.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV");
+				Structure target = sSet.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV").FirstOrDefault();
 				if (target == null)
 				{
 					cResults = "** Plan target volume should be of type PTV \n";
+				}
+				else
+				{
+					cResults = "Plan target volume: " + target.Id;
 				}
 			}
 			return cResults;
