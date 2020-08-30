@@ -50,23 +50,63 @@ namespace VMS.TPS
 
 
 
+// testing ground
 
 
 
-				var planIso = plan.Beams.First().IsocenterPosition; // mm från user origo!!!!!!!!! 
+
+
+				var planIso = plan.Beams.First().IsocenterPosition; // mm från user origo!!!!!!!!!? 
 				var image = plan.StructureSet.Image;
-				var imageUO = image.UserOrigin;             // mm från origo satt från CT!!!!!!
-				var imageCTO = image.Origin;                // Ursprungligt origo satt från CT!!!!!! mm från övre vänstra hörnet?
+				var imageUserOrigo = image.UserOrigin;             // mm från origo satt från CT vilket är dicom-origo!!!!!!The user origin in DICOM coordinates in millimeter. 
+				var imageCTO = image.Origin;                // Ursprungligt origo satt från CT!!!!!! mm från CT-origo TILL övre vänstra hörnet i första bilden!?
+				//The origin of the image. In other words, the DICOM coordinates of the center point of the upper-left hand corner voxel of the first image plane
 
 				double imageSizeX = image.XRes * image.XSize;
-				//double imageSizeY = image.YRes*image.YSize;
-				//double imageSizeZ = image.ZRes*image.ZSize;
-				int protocolFraktionIndex = plan.ProtocolID.IndexOf('#');
+				double imageSizeY = image.YRes * image.YSize;
+				double dist = VVector.Distance(imageCTO,imageUserOrigo);  // 3D distance from one koord to another, double 
+				var userIsoCoord = image.DicomToUser(planIso, plan);  // 
+
+				// VVector @ image center in iso plane in dicomcoordinates
+				VVector isoPlaneImageCenter = planIso;
+
+				double xLeftUpperCorner = image.Origin.x-image.XRes/2;	// Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
+				double yLeftUpperCorner = image.Origin.y+(imageSizeY-image.YRes)/2;	// Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
+				isoPlaneImageCenter.x = xLeftUpperCorner;
+				isoPlaneImageCenter.y = yLeftUpperCorner;
+
+				// instead of absolute image center => coord of first and last image voxel in x and y, XSize in voxels and XRes in mm/voxel
+				double xVoxStart = image.Origin.x;
+				double xVoxEnd = image.Origin.x + image.XRes * image.XSize - image.XRes;
+				double yVoxStart = image.Origin.y;
+				double yVoxEnd = image.Origin.y + image.YRes * image.YSize - image.YRes;
+				
+
+
+
+
+			double steps =  plan.StructureSet.Image.XRes;
+			var endPoint = imageUserOrigo;
+			endPoint.x += 5*steps;
+			//var profX = new ImageProfile;
+
+			var samples = (int)Math.Ceiling(( endPoint - imageUserOrigo ).Length/steps) ;
+			var profX = image.GetImageProfile( planIso , endPoint , new double [samples]) ;
+
 
 				MessageBox.Show("Plan iso: " + planIso.x.ToString("0.00") + "\t" + planIso.y.ToString("0.00") + "\n" +
-				"User Origo: " + imageUO.x.ToString("0.00") + "\t" + imageUO.y.ToString("0.00") + "\n" +
-				"CT origo: " + imageCTO.x.ToString("0.00") + "\t" + imageCTO.y.ToString("0.00") + "\n" +
-				"image size x mm :" + imageSizeX + "\n");
+				"User Origo: " + imageUserOrigo.x.ToString("0.00")  + "\n" +
+				"CT origo: " + imageCTO.x.ToString("0.00") +  "\n" +
+				"image size x mm :" + imageSizeX + "\n" +
+				userIsoCoord.x.ToString("0.00") +  "\n" +
+				userIsoCoord.y.ToString("0.00") +  "\n" +
+				profX[1].Position.x +  "\n" +
+				Convert.ToInt32(profX[1].Value) +  "\n" +					// seems to give value directly in HU
+				image.VoxelToDisplayValue(Convert.ToInt32(profX[1].Value)) +  "\n" +
+				"Number of samples\t" + samples + "\n" +
+				"PlaneImageCenter\t" + isoPlaneImageCenter.y + "\n" +
+				image.XDirection.x);
+				
 
 				//var imageRes = new double[] {image.XRes,image.YRes,image.ZRes};		// voxel size in mm
 				//var imageVoxSize = new int[] {image.XSize, Image.YSize, Image.ZSize};		// image size in voxels
@@ -74,6 +114,66 @@ namespace VMS.TPS
 
 
 
+/*
+
+		public ImageProfile getImageProfileXThroughIsocenter ( PlanSetup plan )
+		{
+
+			double steps =  plan.StructureSet.Image.XRes;
+
+
+			var endPoint = imageUserOrigo;
+			endPoint.x += 5;
+			var profX = new ImageProfile[1];
+
+
+
+
+			//var samples = (int)Math.Ceiling(( endPoint - startPoint ).Length/steps) ;
+
+			profX = image.GetImageProfile( planIso , endPoint , new double[samples]) ;
+
+		return profX ;
+		}
+
+*/
+
+
+
+
+
+
+
+
+
+
+		/*public ( ImageProfile , ImageProfile , ImageProfile ) getImageProfilesThroughIsocenter ( PlanSetup plan )
+		{
+			var image = plan.StructureSet.Image;
+			var dirVecs = new VVector [] {
+			plan.StructureSet.Image.XDirection ,
+			plan.StructureSet.Image.YDirection ,
+			plan.StructureSet.Image.ZDirection
+			};
+			var steps = new double [] {
+			plan.StructureSet.Image.XRes,
+			plan.StructureSet.Image.YRes,
+			plan.StructureSet.Image.ZRes
+			};
+			var planIso = plan.Beams.First().IsocenterPosition;
+			var tmpRes = new ImageProfile [3];
+			//
+			// Throws if plan does not have ’BODY ’
+			//
+			var body = plan.StructureSet.Structures.Single(st => st.Id =="BODY") ;
+			for ( int ind = 0; ind < 3; ind ++)
+			{
+			(var startPoint , var endPoint ) = Helpers.GetStructureEntryAndExit(body ,dirVecs[ind],planIso, steps[ind]) ;
+			var samples = (int)Math.Ceiling(( endPoint - startPoint ).Length/steps[ind]) ;
+			tmpRes [ind] = image.GetImageProfile( startPoint , endPoint , new double[samples]) ;
+			}
+		return ( tmpRes [0] , tmpRes [1] , tmpRes [2]) ;
+		}*/
 
 
 
@@ -155,7 +255,7 @@ namespace VMS.TPS
 			return cResults;
 		}
 
-		// ********* 	Targetvolym; kollar att det är valt och av typen PTV, referenspunkt *********
+		// ********* 	Targetvolym; kollar att det är valt och av typen PTV *********
 
 		public string CheckPlanProp(PlanSetup plan, StructureSet sSet)
 		{
