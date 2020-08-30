@@ -1,5 +1,4 @@
-﻿
-///////////////////////////////////////////////////////////////////////////////
+////////////////////////////////////////////////////////////////////////////////
 //  SRTcheck.cs
 //
 //  ESAPI v15.5 Script for simple plan parameter checks
@@ -9,26 +8,14 @@
 using System;
 using System.Windows;
 using System.Text;
-using System.Windows.Forms;
 using System.Linq;
 using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
 
 
-// TODO:  Kolla också statiska fält och energi (FFF)
-// Couchcheck, VVector[][] GetContoursOnImagePlane eller nåt som säger om rätt bord valt
-// DoseDynamic for MLC -> IMRT,  case arc and static MLC...
-// TODO: separate the checks for srt
-// Naming conventions; structure set, image, reference point, etc
-// Maybe just remarks and thats it...? otherwise; no comments!
-// VMAT rules;  max 18 cm i x
-// Arc rules ;   Om bara en halv- eller trekvartsvarv, bör gå från under pat till över pat.   Om flera arcar, CW och CCW 
-// Går ej att kolla om Course diagnos attached... verkar ej heller gå att se vilken algoritm som används för portal dose, bummer...
 
-/// <summary>
-/// 
-/// </summary>
-namespace VMS.TPS         //      Change to VMS.TPS
+
+namespace VMS.TPS        
 {
 	class Script
 	{
@@ -41,29 +28,30 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			{
 				MessageBox.Show("Please select a patient and plan in active context window.");
 			}
-			else if (!context.PlanSetup.IsDoseValid)
-			{
-				MessageBox.Show("Please calculate the plan before check.");
-			}
 			else
 			{
-				Patient patient = context.Patient;
-				Course course = context.Course;
-				PlanSetup plan = context.PlanSetup;
-				string courseIntent = context.Course.Intent;
-				string courseId = context.Course.Id;
-
-
+			Patient patient = context.Patient;
+			Course course = context.Course;
+			PlanSetup plan = context.PlanSetup;
+			string courseIntent = context.Course.Intent;
+			string courseId = context.Course.Id;
+							   				 			  
 				string message =
 				CheckCourseIntent(courseIntent, plan) + "\n" +
 				CheckClinProt(plan) +
-				CheckPlanProp(plan, plan.StructureSet) + 
+				CheckPlanProp(plan, plan.StructureSet) +
 				CheckCouchStructure(plan.StructureSet) +
 				CheckSetupField(plan) + "\n" +
+				"Treatment fields \n" +
+				"ID \t Energy \t Tech. \t Drate \t MLC \n" +
 				CheckFieldRules(plan);
-				
 
-				MessageBox.Show(message);
+			MessageBox.Show(message);
+
+
+
+
+
 
 				var planIso = plan.Beams.First().IsocenterPosition; // mm från user origo!!!!!!!!! 
 				var image = plan.StructureSet.Image;
@@ -92,48 +80,38 @@ namespace VMS.TPS         //      Change to VMS.TPS
 
 
 
+
+
+
+
+
+
+
+
+
 			}
 		}
 
 
-		/*public ( ImageProfile , ImageProfile , ImageProfile ) getImageProfilesThroughIsocenter ( PlanSetup plan )
-		{
-			var image = plan.StructureSet.Image;
-			var dirVecs = new VVector [] {
-			plan.StructureSet.Image.XDirection ,
-			plan.StructureSet.Image.YDirection ,
-			plan.StructureSet.Image.ZDirection
-			};
-			var steps = new double [] {
-			plan.StructureSet.Image.XRes,
-			plan.StructureSet.Image.YRes,
-			plan.StructureSet.Image.ZRes
-			};
-			var planIso = plan.Beams.First().IsocenterPosition;
-			var tmpRes = new ImageProfile [3];
-			//
-			// Throws if plan does not have ’BODY ’
-			//
-			var body = plan.StructureSet.Structures.Single(st => st.Id =="BODY") ;
-			for ( int ind = 0; ind < 3; ind ++)
-			{
-			(var startPoint , var endPoint ) = Helpers.GetStructureEntryAndExit(body ,dirVecs[ind],planIso, steps[ind]) ;
-			var samples = (int)Math.Ceiling(( endPoint - startPoint ).Length/steps[ind]) ;
-			tmpRes [ind] = image.GetImageProfile( startPoint , endPoint , new double[samples]) ;
-			}
-		return ( tmpRes [0] , tmpRes [1] , tmpRes [2]) ;
-		}*/
 
 
 
 
 
-		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering, aning klent och funkar ej...) *********
 
+
+
+
+
+
+
+
+		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering, aning klent men bör fungera) *********
+		
 		public bool IsPlanSRT(PlanSetup plan)
-		{
-			return (plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose > 6.0 && plan.TotalDose.Dose >= 45.0);
-		}
+			{
+			return (plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >6.0 && plan.TotalDose.Dose >= 45.0); 
+			}
 
 
 
@@ -154,18 +132,21 @@ namespace VMS.TPS         //      Change to VMS.TPS
 		}
 
 
+
+
 		// ********* 	Kontroll av kliniskt protokoll-ID om sådant kopplat till plan, jämförs med plan-fraktionering *********
 
 		public string CheckClinProt(PlanSetup plan)
 		{
-			string cResults = "";
-			if (plan.ProtocolID.Length != 0)
+		string cResults = "";
+		int fractionsInProtocol = 0;
+		if(plan.ProtocolID.Length != 0)
 			{
-				int protocolFractionIndex = plan.ProtocolID.IndexOf('#');										// find the index of the symbol indicating nr of fractions
-				string protocolFrNrInfo = plan.ProtocolID.Substring(protocolFractionIndex - 2, 2).Trim();       // retrieve the two characters before the #, and remove whitespaces
-				if (Int32.TryParse(protocolFrNrInfo, out int fractionsInProtocol))								// try parsing it to int and, if successful, compare to plan fractions
+			int protocolFractionIndex = plan.ProtocolID.IndexOf('#');					// find the index of the symbol indicating nr of fractions
+			string protocolFrNrInfo = plan.ProtocolID.Substring(protocolFractionIndex-2,2).Trim();		// retrieve the two characters before the #, and remove whitespaces
+			if (Int32.TryParse(protocolFrNrInfo, out fractionsInProtocol))					// try parsing it to int and, if successful, compare to plan fractions
 				{
-					if (fractionsInProtocol != plan.NumberOfFractions)
+				if(fractionsInProtocol != plan.NumberOfFractions)
 					{
 						cResults = "** Check the attached clinical protocol! \n \n";
 					}
@@ -196,14 +177,16 @@ namespace VMS.TPS         //      Change to VMS.TPS
 					cResults = "Plan target volume: " + target.Id;
 				}
 			}
-			return cResults + "\t" + plan.PrimaryReferencePoint.PatientVolumeId;
+			return cResults + "\n";
 		}
 
-			   		 	  	  
 
 
-		// ********* 	Kontroll av att bordsstruktur existerar, inte är tom och har korrekt HU 	********* 
-		// begränsningar: kollar ej att rätt bordstyp används och ej heller positionering i förhållande till body
+		
+
+		// ********* 	Kontroll av att bordsstruktur existerar, är av rätt typ, inte är tom och har korrekt HU 	********* 
+		// begränsningar: kollar ej positionering i förhållande till body, rätt bordstyp kollas enbart på namn
+		// Exact IGRT Couch, thin, medium och thick kan vara korrekt beroende på lokalisation...
 
 		public string CheckCouchStructure(StructureSet SSet)
 		{
@@ -212,17 +195,19 @@ namespace VMS.TPS         //      Change to VMS.TPS
 			bool couchInt = false;
 			foreach (Structure s in SSet.Structures)
 			{
-				if (s.Id.Contains("CouchSurf") && !s.IsEmpty)
+				if (s.Id.Contains("CouchSurf") && !s.IsEmpty && s.Name.Contains("Exact IGRT Couch") && s.DicomType == "SUPPORT")
 				{
-					s.GetAssignedHU(out double couchExtHU);
+					double couchExtHU;
+					s.GetAssignedHU(out couchExtHU);
 					if (Math.Round(couchExtHU) == -300)
 					{
 						couchExt = true;
 					}
 				}
-				if (s.Id.Contains("CouchInt") && !s.IsEmpty)
+				if (s.Id.Contains("CouchInt") && !s.IsEmpty && s.Name.Contains("Exact IGRT Couch") && s.DicomType == "SUPPORT")
 				{
-					s.GetAssignedHU(out double couchIntHU);
+					double couchIntHU;
+					s.GetAssignedHU(out couchIntHU);
 					if (Math.Round(couchIntHU) == -1000)
 					{
 						couchInt = true;
@@ -237,21 +222,25 @@ namespace VMS.TPS         //      Change to VMS.TPS
 		}
 
 
-
 		// ********* 	Kontroll av Setup-fält, namngivning	********* 
 
 		public string CheckSetupField(PlanSetup plan)
 		{
-			string cResults = "";
+			string cResults = "Setup-field: \t";
 			int countSetupfields = 0;
 			foreach (var beam in plan.Beams)
 			{
 				if (beam.IsSetupField)
 				{
+					cResults = cResults + beam.Id + "\t \t";
 					countSetupfields++;
 					if (beam.Id.ToUpper().Substring(0, 2).Equals(plan.Id.ToUpper().Substring(0, 2)))
 					{
-						if (!beam.Id.ToUpper().Contains("CBCT"))
+						if (beam.Id.ToUpper().Contains("CBCT"))
+						{
+							cResults = cResults + "OK" + "\n";
+						}
+						else
 						{
 							cResults = cResults + CheckPlanarSetupFields(beam) + "\n";
 						}
@@ -273,31 +262,31 @@ namespace VMS.TPS         //      Change to VMS.TPS
 
 		public string CheckPlanarSetupFields(Beam beam)
 		{
-			string cResults = "";
-			string trimmedID = beam.Id.Substring(2).Trim();         // start iteration at index 2 (PX index 0 and 1)
-			int gantryAngleInBeamID = 1000;
-			for (int i = 1; i <= trimmedID.Length; i++)
+		string cResults = "";
+		string trimmedID = beam.Id.Substring(2).Trim();			// start iteration at index 2 (PX index 0 and 1)
+		int gantryAngleInBeamID = 1000;
+		int test = 0;
+			for (int i=1; i<trimmedID.Length; i++)				
 			{
-				if (Int32.TryParse(trimmedID.Substring(0, i), out int test))
+				if (Int32.TryParse(trimmedID.Substring(0,i), out test))					// try parsing it to int and
 				{
 					gantryAngleInBeamID = test;
 				}
 			}
-			if (gantryAngleInBeamID != 1000)
+			if(gantryAngleInBeamID != 1000)
 			{
-				if (gantryAngleInBeamID == Math.Round(beam.ControlPoints.First().GantryAngle))
+				if(gantryAngleInBeamID == Math.Round(beam.ControlPoints.First().GantryAngle))
 				{
-					cResults = "OK";
+				cResults = "OK";
 				}
 				else
 				{
-					cResults = "Check setup field ID!";
+				cResults = "Check name!";
 				}
 			}
-			return cResults;
+		return cResults;
 		}
 
-			   		 
 
 
 		// ********* 	Kontroll av diverse fältregler och "best practices"	********* 
@@ -305,40 +294,35 @@ namespace VMS.TPS         //      Change to VMS.TPS
 
 		public string CheckFieldRules(PlanSetup plan)
 		{
-			string remarksSRS = "";
-			string remarksDoseRateFFF = "";
-			string remarksArcDynFFF = "";
-			string remarksArcDynCollAngle = "";
-			string remarksArcStartStop = "";
-			string remarksArcDirections = "";
-
+			string cResults = "";
+			string remarks = "";
 			int countFields = plan.Beams.Count();
-			//	int countWedge = plan.Beams.Wedges.Count();
 			int countSetupFields = plan.Beams.Where(b => b.IsSetupField).Count();
 			int countTreatFields = countFields - countSetupFields;
-			int countRemarksSRS = 0;                    // All fields should be SRS if SBRT- or SRS-plan
-			int countRemarksDoseRateFFF = 0;            // Dose rate should be maximum for FFF
-			int countRemarksArcDynFFF = 0;              // The energy should be FFF if dynamic arc used
-			int countRemarksArcDynCollAngle = 0;        // The collimator angle should be between +/-5 deg if dynamic arc used
+			int countSRSRemarks = 0;					// All fields should be SRS if SBRT- or SRS-plan
+			int countDoseRateFFFRemarks = 0;			// Dose rate should be maximum for FFF
+			int countArcDynFFFRemarks = 0;				// The energy should be FFF if dynamic arc used
+			int countArcDynCollAngleRemarks = 0;        // The collimator angle should be between +/-5 deg if dynamic arc used
 			int countArcCW = 0;
-			int countArcCCW = 0;                        // the absolute difference between CW and CCW should be less than two...
+			int countArcCCW = 0;						// the absolute difference between CW and CCW should be less than two...
 			foreach (var beam in plan.Beams)
 			{
 				if (!beam.IsSetupField)
 				{
-					if (!beam.Technique.Id.Contains("SRS") && IsPlanSRT(plan))
+					cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\n";
+					if (!beam.Technique.Id.Contains("SRS"))
 					{
-						if (countRemarksSRS < 1) { remarksSRS = "** Change technique to SRS-" + beam.Technique.Id + "! \n"; };
-						countRemarksSRS++;
+						if (countSRSRemarks < 1) { remarks = remarks + "** Change technique to SRS-" + beam.Technique.Id + "! \n"; };
+						countSRSRemarks++;
 					}
 					if (beam.EnergyModeDisplayName.Contains("FFF"))
 					{
-						remarksDoseRateFFF += CheckDoseRateFFF(beam, ref countRemarksDoseRateFFF);
+						remarks += CheckDoseRateFFF(beam, ref countDoseRateFFFRemarks);
 					}
-					if (beam.MLCPlanType == MLCPlanType.ArcDynamic && IsPlanSRT(plan))
+					if (beam.MLCPlanType == MLCPlanType.ArcDynamic)
 					{
-						remarksArcDynFFF += CheckArcDynFFF(beam, ref countRemarksArcDynFFF);
-						remarksArcDynCollAngle += CheckArcDynCollAngle(beam, ref countRemarksArcDynCollAngle);
+						remarks += CheckArcDynFFF(beam, ref countArcDynFFFRemarks);
+						remarks += CheckArcDynCollAngle(beam, ref countArcDynCollAngleRemarks);
 					}
 					if (beam.GantryDirection == GantryDirection.CounterClockwise)
 					{
@@ -350,36 +334,30 @@ namespace VMS.TPS         //      Change to VMS.TPS
 					}
 					if (countTreatFields == 1 && beam.Technique.Id.Contains("ARC"))
 					{
-						remarksArcStartStop += CheckArcStartStop(beam);
+						remarks += CheckArcStartStop(beam);
 					}
 				}
-
+				if (Math.Abs(countArcCCW-countArcCW)>1)
+				{
+					remarks += "** Check the arc directions! \t";
+				}
 			}
-			if (Math.Abs(countArcCCW - countArcCW) > 1)
-			{
-				remarksArcDirections += "** Check the arc directions! \t";
-			}
-			string cResults = remarksSRS + remarksDoseRateFFF + remarksArcDynFFF + remarksArcDynCollAngle + remarksArcStartStop + remarksArcDirections;
-			return cResults;
+			return cResults + "\n" + remarks;
 		}
 
 
 		// ********* 	Kontroll av dosrat vid FFF	*********
 
-		public string CheckDoseRateFFF(Beam beam, ref int countRemarksDoseRateFFF)
+		public string CheckDoseRateFFF(Beam beam, ref int countDoseRateFFFRemarks)
 		{
 			string cResults = "";
 			if (beam.DoseRate < 1400)
 			{
-				if (countRemarksDoseRateFFF < 1)
+				if (countDoseRateFFFRemarks < 1)
 				{
-					cResults = "** Change dose rate to maximum! Field: " + beam.Id;
+					cResults = "** Change dose rate to maximum! \n";
+					countDoseRateFFFRemarks++;
 				}
-				else
-				{
-					cResults += ", " + beam.Id;
-				}
-				countRemarksDoseRateFFF++;
 			}
 			return cResults;
 		}
@@ -387,13 +365,13 @@ namespace VMS.TPS         //      Change to VMS.TPS
 
 		// ********* 	Kontroll av energi vid Dynamic Arc	*********
 
-		public string CheckArcDynFFF(Beam beam, ref int countRemarksArcDynFFF)
+		public string CheckArcDynFFF(Beam beam, ref int countArcDynFFFRemarks)
 		{
 			string cResults = "";
-			if (countRemarksArcDynFFF < 1 && !beam.EnergyModeDisplayName.Contains("FFF"))
+			if (countArcDynFFFRemarks < 1 && !beam.EnergyModeDisplayName.Contains("FFF"))
 			{
 				cResults = "** Change energy to FFF! \n";
-				countRemarksArcDynFFF++;
+				countArcDynFFFRemarks++;
 			}
 			return cResults;
 		}
@@ -401,17 +379,16 @@ namespace VMS.TPS         //      Change to VMS.TPS
 
 		// ********* 	Kontroll av kollimatorvinkel vid Dynamic Arc	*********
 
-		public string CheckArcDynCollAngle(Beam beam, ref int countRemarksArcDynCollAngle)
+		public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemarks)
 		{
 			string cResults = "";
-			if (countRemarksArcDynCollAngle < 1 && beam.ControlPoints.First().CollimatorAngle > 5.0 && beam.ControlPoints.First().CollimatorAngle < 355.0)
+			if (countArcDynCollAngleRemarks < 1 && beam.ControlPoints.First().CollimatorAngle > 5.0 && beam.ControlPoints.First().CollimatorAngle < 355.0)
 			{
 				cResults = "** Collimator angle for DynArc should be between +/- 5 deg \n";
-				countRemarksArcDynCollAngle++;
+				countArcDynCollAngleRemarks++;
 			}
 			return cResults;
 		}
-
 
 		// ********* 	Kontroll av start och stop-vinkel vid Arc och enbart ett fält, bör helst (om inte fullvarv) stanna ovan pat ********
 
