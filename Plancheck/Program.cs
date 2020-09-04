@@ -112,7 +112,17 @@ namespace VMS.TPS
 				//var imageVoxSize = new int[] {image.XSize, Image.YSize, Image.ZSize};		// image size in voxels
 
 
-
+				            PatternGradient lax = new PatternGradient();
+            lax.DistanceInMm = new List<double>();
+            lax.GradientHUPerMm = new List<int>();
+            lax.DistanceInMm.Add(0);
+            lax.GradientHUPerMm.Add(150);
+            lax.DistanceInMm.Add(5);
+            lax.GradientHUPerMm.Add(-150);
+            lax.DistanceInMm.Add(13);
+            lax.GradientHUPerMm.Add(150);
+            lax.DistanceInMm.Add(5);
+            lax.GradientHUPerMm.Add(-150);
 
 /*
 
@@ -503,6 +513,100 @@ namespace VMS.TPS
 			}
 			return cResults;
 		}
+		
+		//*********HELPER METHODS**************
+		
+		bool sameSign(double num1, double num2)
+            	{
+                	return num1 >= 0 && num2 >= 0 || num1 < 0 && num2 < 0;
+            	}
+		
+		        public class PatternGradient
+        {
+            public List<double> DistanceInMm { get; set; }
+            public List<int> GradientHUPerMm { get; set; }
+
+        }
+		
+		
+		
+            void getCoordinates(List<double> xdfg, List<double> valsdf)
+            {
+
+
+                double[] grad = new double[x.Count - 1];
+                double[] pos = new double[x.Count - 1];
+                int index = 0;
+
+                for (int i = 0; i < x.Count - 1; i++)
+                {
+                    pos[i] = (x[i] + x[i + 1]) / 2;
+                    grad[i] = (val[i + 1] - val[i]) / Math.Abs(x[i + 1] - x[i]);
+                    System.Console.WriteLine(pos[i] + "\t" + grad[i]);
+                }
+
+
+
+
+
+                List<double> gradPosition = new List<double>();
+
+
+
+                for (int i = 0; i < x.Count - 1; i++)
+                {
+                    pos[i] = (x[i] + x[i + 1]) / 2;
+                    grad[i] = (val[i + 1] - val[i]) / Math.Abs(x[i + 1] - x[i]);
+                    if (index > lax.GradientHUPerMm.Count() - 1)                        //break if last condition passed 
+                    {
+                        break;
+                    }
+
+                    if (Math.Abs((val[i + 1] - val[i]) / Math.Abs(x[i + 1] - x[i])) > (Math.Abs(lax.GradientHUPerMm[index])) && sameSign(grad[i], lax.GradientHUPerMm[index])) // om gradient > angiven gradient och om går åt samma håll
+                    {
+                        //Might not be the largest gradient in the visinity 
+                        while (Math.Abs((val[i + 2] - val[i + 1])) > Math.Abs((val[i + 1] - val[i])) && sameSign((val[i + 2] - val[i + 1]), (val[i + 1] - val[i])))   // THIS IS PROBABLY WRONG
+                        {
+                            i++;
+                        }
+
+                        System.Console.WriteLine(pos[i] + "\t" + grad[i]);
+
+                        gradPosition.Add(pos[i]);
+
+                        if (index == 0)
+                        {
+                            index++;
+                            // stega upp i objektet till nästa gradient om distance är uppfyllt, tills sista är uppfylld och då break
+                        }
+                        else if ((Math.Abs(gradPosition[index] - gradPosition[index - 1]) > (lax.DistanceInMm[index] - 3)) && (Math.Abs(gradPosition[index] - gradPosition[index - 1]) < (lax.DistanceInMm[index] + 3))) // jämför avstånd mellan gradienter mot angett avstånd +/- marginal
+                        {
+                            //gradPosition.Add(pos[i]);
+                            index++;
+                        }
+                        else
+                        {
+                            gradPosition.Clear();       // om det inte är första gradienten och om inte avståndet stämmer; nollställ o börja om
+                            index = 0;
+                        }
+
+                        foreach (var item in gradPosition)
+                        {
+                            System.Console.WriteLine(item);
+                        }
+                        System.Console.WriteLine("\n");
+                    }
+                }
+                foreach (var item in gradPosition)
+                {
+                    System.Console.WriteLine("Gradient position:");
+                    System.Console.WriteLine(item);
+                }
+                System.Console.WriteLine("\n");
+
+
+
+            }
 
 
 	}
