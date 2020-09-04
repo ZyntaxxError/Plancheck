@@ -123,6 +123,8 @@ namespace VMS.TPS
             lax.GradientHUPerMm.Add(150);
             lax.DistanceInMm.Add(5);
             lax.GradientHUPerMm.Add(-150);
+				
+			//	getCoordinates(List<double> coord, List<double> valueHU);
 
 /*
 
