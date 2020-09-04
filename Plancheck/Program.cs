@@ -525,47 +525,40 @@ namespace VMS.TPS
         {
             public List<double> DistanceInMm { get; set; }
             public List<int> GradientHUPerMm { get; set; }
-
         }
 		
 		
 		
-            void getCoordinates(List<double> xdfg, List<double> valsdf)
+                        void getCoordinates(List<double> coord, List<double> valueHU)
             {
 
 
-                double[] grad = new double[x.Count - 1];
-                double[] pos = new double[x.Count - 1];
+                double[] grad = new double[coord.Count - 1];
+                double[] pos = new double[coord.Count - 1];
                 int index = 0;
 
-                for (int i = 0; i < x.Count - 1; i++)
+                for (int i = 0; i < coord.Count - 1; i++)
                 {
-                    pos[i] = (x[i] + x[i + 1]) / 2;
-                    grad[i] = (val[i + 1] - val[i]) / Math.Abs(x[i + 1] - x[i]);
+                    pos[i] = (coord[i] + coord[i + 1]) / 2;
+                    grad[i] = (valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i]);
                     System.Console.WriteLine(pos[i] + "\t" + grad[i]);
                 }
-
-
-
-
-
+                                                          
                 List<double> gradPosition = new List<double>();
-
-
-
-                for (int i = 0; i < x.Count - 1; i++)
+                               
+                for (int i = 0; i < coord.Count - 1; i++)
                 {
-                    pos[i] = (x[i] + x[i + 1]) / 2;
-                    grad[i] = (val[i + 1] - val[i]) / Math.Abs(x[i + 1] - x[i]);
+                    pos[i] = (coord[i] + coord[i + 1]) / 2;
+                    grad[i] = (valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i]);
                     if (index > lax.GradientHUPerMm.Count() - 1)                        //break if last condition passed 
                     {
                         break;
                     }
 
-                    if (Math.Abs((val[i + 1] - val[i]) / Math.Abs(x[i + 1] - x[i])) > (Math.Abs(lax.GradientHUPerMm[index])) && sameSign(grad[i], lax.GradientHUPerMm[index])) // om gradient > angiven gradient och om går åt samma håll
+                    if (Math.Abs((valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i])) > (Math.Abs(lax.GradientHUPerMm[index])) && sameSign(grad[i], lax.GradientHUPerMm[index])) // om gradient > angiven gradient och om går åt samma håll
                     {
                         //Might not be the largest gradient in the visinity 
-                        while (Math.Abs((val[i + 2] - val[i + 1])) > Math.Abs((val[i + 1] - val[i])) && sameSign((val[i + 2] - val[i + 1]), (val[i + 1] - val[i])))   // THIS IS PROBABLY WRONG
+                        while (Math.Abs((valueHU[i + 2] - valueHU[i + 1])) > Math.Abs((valueHU[i + 1] - valueHU[i])) && sameSign((valueHU[i + 2] - valueHU[i + 1]), (valueHU[i + 1] - valueHU[i])))   // THIS IS PROBABLY WRONG
                         {
                             i++;
                         }
@@ -603,9 +596,6 @@ namespace VMS.TPS
                     System.Console.WriteLine(item);
                 }
                 System.Console.WriteLine("\n");
-
-
-
             }
 
 
