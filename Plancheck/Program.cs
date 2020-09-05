@@ -7,6 +7,7 @@
 
 using System;
 using System.Windows;
+using System.Collections.Generic;
 using System.Text;
 using System.Linq;
 using VMS.TPS.Common.Model.API;
@@ -85,13 +86,13 @@ namespace VMS.TPS
 
 
 
-			double steps =  plan.StructureSet.Image.XRes;
+			double steps =  plan.StructureSet.Image.YRes;
 			var endPoint = imageUserOrigo;
-			endPoint.x += 5*steps;
-			//var profX = new ImageProfile;
+			endPoint.y -= 100*steps;
+			//var profY = new ImageProfile;
 
 			var samples = (int)Math.Ceiling(( endPoint - imageUserOrigo ).Length/steps) ;
-			var profX = image.GetImageProfile( planIso , endPoint , new double [samples]) ;
+			var profY = image.GetImageProfile( image.UserOrigin , endPoint , new double [samples]) ;
 
 
 				MessageBox.Show("Plan iso: " + planIso.x.ToString("0.00") + "\t" + planIso.y.ToString("0.00") + "\n" +
@@ -100,63 +101,63 @@ namespace VMS.TPS
 				"image size x mm :" + imageSizeX + "\n" +
 				userIsoCoord.x.ToString("0.00") +  "\n" +
 				userIsoCoord.y.ToString("0.00") +  "\n" +
-				profX[1].Position.x +  "\n" +
-				Convert.ToInt32(profX[1].Value) +  "\n" +					// seems to give value directly in HU
-				image.VoxelToDisplayValue(Convert.ToInt32(profX[1].Value)) +  "\n" +
+				profY[1].Position.x +  "\n" +
+				Convert.ToInt32(profY[1].Value) +  "\n" +					// seems to give value directly in HU
+				image.VoxelToDisplayValue(Convert.ToInt32(profY[1].Value)) +  "\n" +
 				"Number of samples\t" + samples + "\n" +
 				"PlaneImageCenter\t" + isoPlaneImageCenter.y + "\n" +
-				image.XDirection.x);
+				image.XDirection.y);
 				
 
 				//var imageRes = new double[] {image.XRes,image.YRes,image.ZRes};		// voxel size in mm
 				//var imageVoxSize = new int[] {image.XSize, Image.YSize, Image.ZSize};		// image size in voxels
 
 
-				            PatternGradient lax = new PatternGradient();
+	PatternGradient lax = new PatternGradient();
             lax.DistanceInMm = new List<double>();
             lax.GradientHUPerMm = new List<int>();
             lax.DistanceInMm.Add(0);
-            lax.GradientHUPerMm.Add(150);
+            lax.GradientHUPerMm.Add(100);
             lax.DistanceInMm.Add(5);
-            lax.GradientHUPerMm.Add(-150);
+            lax.GradientHUPerMm.Add(-100);
             lax.DistanceInMm.Add(13);
-            lax.GradientHUPerMm.Add(150);
+            lax.GradientHUPerMm.Add(100);
             lax.DistanceInMm.Add(5);
-            lax.GradientHUPerMm.Add(-150);
-				
-			//	getCoordinates(List<double> coord, List<double> valueHU);
+            lax.GradientHUPerMm.Add(-100);
+
+
+
+		List<double> valHU = new List<double>();
+		List<double> coo = new List<double>();
+string debug1 = "";
+		for(int i=0;i<samples;i++)
+		{
+				valHU.Add(profY[i].Value);
+				coo.Add(profY[i].Position.y);
+debug1 += coo[i].ToString("0.00") + "\t" + valHU[i].ToString("0.00") + "\n";
+		}
+//MessageBox.Show(debug1);
+
+// Get the coordinate (dicom) that represents inner bottom of laxbox (-1 in box-coordinates)
+	string coordBox = getCoordinates(coo, valHU, lax.GradientHUPerMm, lax.DistanceInMm );
+
+
+MessageBox.Show("test" + coordBox);
 
 /*
 
 		public ImageProfile getImageProfileXThroughIsocenter ( PlanSetup plan )
 		{
-
 			double steps =  plan.StructureSet.Image.XRes;
-
-
 			var endPoint = imageUserOrigo;
 			endPoint.x += 5;
 			var profX = new ImageProfile[1];
-
-
-
-
 			//var samples = (int)Math.Ceiling(( endPoint - startPoint ).Length/steps) ;
-
 			profX = image.GetImageProfile( planIso , endPoint , new double[samples]) ;
 
 		return profX ;
 		}
-
 */
-
-
-
-
-
-
-
-
 
 
 		/*public ( ImageProfile , ImageProfile , ImageProfile ) getImageProfilesThroughIsocenter ( PlanSetup plan )
@@ -187,34 +188,8 @@ namespace VMS.TPS
 		return ( tmpRes [0] , tmpRes [1] , tmpRes [2]) ;
 		}*/
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 			}
 		}
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -531,10 +506,9 @@ namespace VMS.TPS
 		
 		
 		
-                        void getCoordinates(List<double> coord, List<double> valueHU)
+           string getCoordinates(List<double> coord, List<double> valueHU, List<int> hUPerMm, List<double> distMm )
             {
-
-
+		string debug ="";
                 double[] grad = new double[coord.Count - 1];
                 double[] pos = new double[coord.Count - 1];
                 int index = 0;
@@ -543,8 +517,10 @@ namespace VMS.TPS
                 {
                     pos[i] = (coord[i] + coord[i + 1]) / 2;
                     grad[i] = (valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i]);
-                    System.Console.WriteLine(pos[i] + "\t" + grad[i]);
+                    //System.Console.WriteLine(pos[i] + "\t" + grad[i]);
+//debug += pos[i].ToString("0.00") + "\t" + grad[i].ToString("0.00") + "\n";
                 }
+
                                                           
                 List<double> gradPosition = new List<double>();
                                
@@ -552,20 +528,21 @@ namespace VMS.TPS
                 {
                     pos[i] = (coord[i] + coord[i + 1]) / 2;
                     grad[i] = (valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i]);
-                    if (index > lax.GradientHUPerMm.Count() - 1)                        //break if last condition passed 
+                    if (index == hUPerMm.Count())                        //break if last condition passed 
                     {
                         break;
                     }
 
-                    if (Math.Abs((valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i])) > (Math.Abs(lax.GradientHUPerMm[index])) && sameSign(grad[i], lax.GradientHUPerMm[index])) // om gradient > angiven gradient och om går åt samma håll
+
+                    if (Math.Abs((valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i])) > (Math.Abs(hUPerMm[index])) && sameSign(grad[i], hUPerMm[index])) // om gradient > angiven gradient och om går åt samma håll
                     {
                         //Might not be the largest gradient in the visinity 
                         while (Math.Abs((valueHU[i + 2] - valueHU[i + 1])) > Math.Abs((valueHU[i + 1] - valueHU[i])) && sameSign((valueHU[i + 2] - valueHU[i + 1]), (valueHU[i + 1] - valueHU[i])))   // THIS IS PROBABLY WRONG
                         {
                             i++;
                         }
-
-                        System.Console.WriteLine(pos[i] + "\t" + grad[i]);
+			debug += pos[i].ToString("0.00") + "\t" + grad[i].ToString("0.00") + "\n";
+                        //System.Console.WriteLine(pos[i] + "\t" + grad[i]);
 
                         gradPosition.Add(pos[i]);
 
@@ -574,7 +551,7 @@ namespace VMS.TPS
                             index++;
                             // stega upp i objektet till nästa gradient om distance är uppfyllt, tills sista är uppfylld och då break
                         }
-                        else if ((Math.Abs(gradPosition[index] - gradPosition[index - 1]) > (lax.DistanceInMm[index] - 3)) && (Math.Abs(gradPosition[index] - gradPosition[index - 1]) < (lax.DistanceInMm[index] + 3))) // jämför avstånd mellan gradienter mot angett avstånd +/- marginal
+                        else if ((Math.Abs(gradPosition[index] - gradPosition[index - 1]) > (distMm[index] - 3)) && (Math.Abs(gradPosition[index] - gradPosition[index - 1]) < (distMm[index] + 3))) // jämför avstånd mellan gradienter mot angett avstånd +/- marginal
                         {
                             //gradPosition.Add(pos[i]);
                             index++;
@@ -584,22 +561,19 @@ namespace VMS.TPS
                             gradPosition.Clear();       // om det inte är första gradienten och om inte avståndet stämmer; nollställ o börja om
                             index = 0;
                         }
-
-                        foreach (var item in gradPosition)
-                        {
-                            System.Console.WriteLine(item);
-                        }
-                        System.Console.WriteLine("\n");
                     }
                 }
-                foreach (var item in gradPosition)
-                {
-                    System.Console.WriteLine("Gradient position:");
-                    System.Console.WriteLine(item);
-                }
-                System.Console.WriteLine("\n");
+		if(index == hUPerMm.Count())
+			{
+				return (96+gradPosition[2]).ToString("0.00") + "\n" +debug + "\n index: " + index;;
+			}
+		else
+			{
+				return debug + "\n index: " + index;
+			}
             }
 
 
+		
 	}
 }
