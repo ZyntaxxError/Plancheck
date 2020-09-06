@@ -8,6 +8,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Windows;
 using System.Linq;
 using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
@@ -56,10 +57,10 @@ namespace VMS.TPS
 
 
 
-				var planIso = plan.Beams.First().IsocenterPosition; // mm från user origo!!!!!!!!!? 
+				var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
 				var image = plan.StructureSet.Image;
-				var imageUserOrigo = image.UserOrigin;             // mm från origo satt från CT vilket är dicom-origo!!!!!!The user origin in DICOM coordinates in millimeter. 
-				var imageCTO = image.Origin;                // Ursprungligt origo satt från CT!!!!!! mm från CT-origo TILL övre vänstra hörnet i första bilden!?
+				var imageUserOrigo = image.UserOrigin;             // mm från origo satt från CT vilket är dicom-origo!The user origin in DICOM coordinates in millimeter. 
+				var imageCTO = image.Origin;                // Ursprungligt origo satt från CT, mm från CT-origo TILL övre vänstra hörnet i första bilden!
 				//The origin of the image. In other words, the DICOM coordinates of the center point of the upper-left hand corner voxel of the first image plane
 
 				double imageSizeX = image.XRes * image.XSize;
@@ -70,12 +71,15 @@ namespace VMS.TPS
 				// VVector @ image center in iso plane in dicomcoordinates
 				VVector isoPlaneImageCenter = planIso;
 
-				double xLeftUpperCorner = image.Origin.x-image.XRes/2;	// Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner) nah icke..
-				double yLeftUpperCorner = image.Origin.y+(imageSizeY-image.YRes)/2;	// Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner) knappast dfetta heller
-				isoPlaneImageCenter.x = xLeftUpperCorner;
-				isoPlaneImageCenter.y = yLeftUpperCorner;
+
+
+
+				double xLeftUpperCorner = image.Origin.x-image.XRes/2;	// Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
+				double yLeftUpperCorner = image.Origin.y-image.YRes/2;	// Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
+
 
 				// instead of absolute image center => coord of first and last image voxel in x and y, XSize in voxels and XRes in mm/voxel
+				// this seems like a smart idea if I can understand it...
 				double xVoxStart = image.Origin.x;
 				double xVoxEnd = image.Origin.x + image.XRes * image.XSize - image.XRes;
 				double yVoxStart = image.Origin.y;
@@ -83,28 +87,36 @@ namespace VMS.TPS
 				
 				
 
+			//**********  Image profile, need to define startpoint(VVector), endpoint(VVector) and number of samples (double[]) in that distance *********** 
 
 
-			double steps =  plan.StructureSet.Image.YRes;
-			var endPoint = image.UserOrigin;		//   Only really want the z-coordinate from user origin
-			endPoint.y += 150*steps;
+			//In case of SBRT we want to get a profile in User origo plane, middle of the image in x-direction and starting from bottom of the image in y.
 
 
-			var samplesY = (int)Math.Ceiling(( endPoint - imageUserOrigo ).Length/steps) ;
-			var profY = image.GetImageProfile( endPoint , image.UserOrigin , new double [samplesY]) ;
+			VVector bottomProfileStart = image.UserOrigin;				// only to get the z-coord of the user origo, x and y coord will be reassigned
+			bottomProfileStart.x = xLeftUpperCorner + imageSizeX/2;			// center of the image in x-direction
+			bottomProfileStart.y = yLeftUpperCorner + imageSizeY-image.YRes; 	// start 1 pixel in from bottom...
+			double steps =  plan.StructureSet.Image.YRes;				//   (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
+ 
+			VVector bottomProfileEnd = bottomProfileStart;
+			bottomProfileEnd.y -= 200*steps;					// endpoint 200 steps in -y direction
+
+			var samplesY = (int)Math.Ceiling(( bottomProfileStart - bottomProfileEnd ).Length/steps) ;
+			var profY = image.GetImageProfile( bottomProfileStart , bottomProfileEnd , new double [samplesY]) ;
 
 
 			MessageBox.Show("Plan iso: " + planIso.x.ToString("0.0") + "\t" + planIso.y.ToString("0.0") + "\n" +
 			"User Origo: " + imageUserOrigo.x.ToString("0.0")  + "\t" + imageUserOrigo.y.ToString("0.0")  + "\n" +
-			"CT origo: " + imageCTO.x.ToString("0.0") +  "\n" + "\t" + imageCTO.y.ToString("0.0") +
-			"image size x mm :" + imageSizeX + "\n" +
-			userIsoCoord.x.ToString("0.00") +  "\n" +
+			"CT origo: " + imageCTO.x.ToString("0.0") + "\t" + imageCTO.y.ToString("0.0")  +  "\n" +
+			"image size x mm :" + imageSizeX + "\t" + "y: " + imageSizeY + "\n" +
+			"DicToUserIso: " + userIsoCoord.x.ToString("0.00") +  "\t" + userIsoCoord.y.ToString("0.00") +  "\n" +
 			userIsoCoord.y.ToString("0.00") +  "\n" +
-			profY[1].Position.x +  "\n" +
-			profY[1].Value.ToString("0.00") +  "\n" +					// seems to give value directly in HU
+			//isoPlaneImageCenter.y
+			//profY[1].Position.x +  "\n" +
+			//profY[1].Value.ToString("0.00") +  "\n" +					// seems to give value directly in HU
 			//image.VoxelToDisplayValue(Convert.ToInt32(profY[1].Value)) +  "\n" +
 			"Number of samples\t" + samplesY + "\n" +
-			"PlaneImageCenter\t" + isoPlaneImageCenter.y + "\n" +
+			//"PlaneImageCenter\t" + isoPlaneImageCenter.y + "\n" +
 			image.XDirection.y);
 				
 
@@ -112,20 +124,14 @@ namespace VMS.TPS
 				//var imageVoxSize = new int[] {image.XSize, Image.YSize, Image.ZSize};		// image size in voxels
 
 
-			//***********  Gradient patter describing profile in HU of the Lax-box bottom **********
+			//***********  Gradient patter describing expected profile in HU of the Lax-box bottom **********
 
 			PatternGradient lax = new PatternGradient();
-            lax.DistanceInMm = new List<double>();
-            lax.GradientHUPerMm = new List<int>();
-            lax.DistanceInMm.Add(0);
-            lax.GradientHUPerMm.Add(100);
-            lax.DistanceInMm.Add(4.4);			// mean value from profiling 10 pat.
-            lax.GradientHUPerMm.Add(-100);
-            lax.DistanceInMm.Add(12.3);
-            lax.GradientHUPerMm.Add(100);
-            lax.DistanceInMm.Add(4.4);
-            lax.GradientHUPerMm.Add(-100);
-			lax.PositionToleranceMm = 2;		// tolerance for the gradient position
+            	lax.DistanceInMm = new List<double>(){0, 4.4, 12.3, 4.4};		// distance between gradients, mean values from profiling 10 pat 
+            	lax.GradientHUPerMm = new List<int>(){100, -100, 100, -100};
+		lax.PositionToleranceMm = 2;						// tolerance for the gradient position
+		lax.gradIndexForCoord = 2;						// index of gradient position to return (zero based index)
+		
 
 
 				// Imageprofile gets a VVector back, take the coordinates and respective HU and put them in two Lists of double, might be better ways of doing this...
@@ -141,21 +147,72 @@ debug1 += coo[i].ToString("0.0") + "\t" + valHU[i].ToString("0.0") + "\n";
 //MessageBox.Show(debug1);
 
 // Get the coordinate (dicom) that represents inner bottom of laxbox (-1 in box-coordinates)
-	string coordBox = getCoordinates(coo, valHU, lax.GradientHUPerMm, lax.DistanceInMm, lax.PositionToleranceMm );
+	double coordBoxBottom = getCoordinates(coo, valHU, lax.GradientHUPerMm, lax.DistanceInMm, lax.PositionToleranceMm, lax.gradIndexForCoord );
+// in Boxcoordinates this is equal to -2 in ant-post, can then check the coordinates for user origo in y which should be 95 (in SRS coord) by adding -97 to found coordinate
+string UserOrigoCheck ="";
+if(Math.Abs(image.UserOrigin.y - (coordBoxBottom - 97))<1)
+{
+UserOrigoCheck ="Origo is correct within 1 mm";
+}
+else if(Math.Abs(image.UserOrigin.y - (coordBoxBottom - 97))<2)
+{
+UserOrigoCheck ="Origo is correct within 2 mm";
+}
+else 
+{
+UserOrigoCheck ="Check position of user origo";
+}
+MessageBox.Show(UserOrigoCheck);
 
 
-MessageBox.Show("test" + coordBox);
+// ************************************ get profiles in x direction, left and right side and detemine center of box ********************
+
+
+
+			VVector leftProfileStart = image.UserOrigin;				// only to get the z-coord of the user origo, x and y coord will be reassigned
+			leftProfileStart.x = xLeftUpperCorner + image.XRes;			// start 1 pixel in left side
+			leftProfileStart.y = coordBoxBottom - 93.5; 				// hopefully between fidusles...
+			double stepsX =  image.XRes;				//   (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
+ 
+			VVector leftProfileEnd = leftProfileStart;
+			leftProfileEnd.x += 100*stepsX;					// endpoint 100 steps in -y direction
+
+			var samplesX = (int)Math.Ceiling(( leftProfileStart - leftProfileEnd ).Length/stepsX) ;
+			var profLeft = image.GetImageProfile( leftProfileStart , leftProfileEnd , new double [samplesX]) ;
+
+
+
+/**
+		List<double> valHULeft = new List<double>();
+		List<double> cooLeft = new List<double>();
+string debugLeft = "";
+		for(int i=0;i<samplesX;i++)
+		{
+				valHULeft.Add(profLeft[i].Value);
+				cooLeft.Add(profLeft[i].Position.x);
+debugLeft += cooLeft[i].ToString("0.0") + "\t" + valHULeft[i].ToString("0.0") + "\n";
+		}
+
+MessageBox.Show(debugLeft);
+
+
+double coordBoxLeft = getCoordinates(cooLeft, valHULeft, lax.GradientHUPerMm, lax.DistanceInMm, lax.PositionToleranceMm, lax.gradIndexForCoord );
+
+MessageBox.Show(coordBoxLeft.ToString("0.0"));
+
+*/
 
 
 
 
 
+*********************************    normal checks *********************************
 
 
 				// TODO check if isocenter in same plane as user origo, not neccesary though as there can be multiple isocenters (muliple plans)
 
 
-					   			 		  		  		 	   			   	  /*
+/*
 
 		public ImageProfile getImageProfileXThroughIsocenter ( PlanSetup plan )
 		{
@@ -484,9 +541,10 @@ MessageBox.Show("test" + coordBox);
 		
 		        public class PatternGradient
         {
-            public List<double> DistanceInMm { get; set; }
-            public List<int> GradientHUPerMm { get; set; }
-            public int PositionToleranceMm { get; set; }
+            	public List<double> DistanceInMm { get; set; }
+            	public List<int> GradientHUPerMm { get; set; }
+            	public int PositionToleranceMm { get; set; }
+		public int gradIndexForCoord { get; set; }
         }
 		
 		
@@ -499,7 +557,7 @@ MessageBox.Show("test" + coordBox);
 		/// <param name="distMm"> Distance in mm to the next gradient</param>
 		/// <param name="posTolMm"> Tolerance of position of found gradient in mm</param>
 		/// <returns></returns>
-           string getCoordinates(List<double> coord, List<double> valueHU, List<int> hUPerMm, List<double> distMm, int posTolMm )
+           double getCoordinates(List<double> coord, List<double> valueHU, List<int> hUPerMm, List<double> distMm, int posTolMm, int indexToReturn )
             {
 				string debug ="";
                 double[] grad = new double[coord.Count - 1];
@@ -534,13 +592,13 @@ MessageBox.Show("test" + coordBox);
                         gradPosition.Add(pos[i]);
                         if (index == 0)		// if this is the first gradient (i.e. index == 0), cannot yet compare the distance between the gradients, step up index and continue
                         {
-//debug += pos[i].ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
+debug += pos[i].ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
                             index++;
                         }
 											//  compare the distance between the gradients to the criteria given, step up index and continue
 						else if ((Math.Abs(gradPosition[index] - gradPosition[index - 1]) > (distMm[index] - posTolMm)) && (Math.Abs(gradPosition[index] - gradPosition[index - 1]) < (distMm[index] + posTolMm))) // jämför avstånd mellan gradienter mot angett avstånd +/- marginal
                         {
-//debug += pos[i].ToString("0.0") + "\t" + (gradPosition[index] - gradPosition[index-1]).ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
+debug += pos[i].ToString("0.0") + "\t" + (gradPosition[index] - gradPosition[index-1]).ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
                             //gradPosition.Add(pos[i]);
                             index++;
                         }
@@ -553,11 +611,11 @@ MessageBox.Show("test" + coordBox);
                 }
 				if(index == hUPerMm.Count())
 				{
-					return (gradPosition[2]-97).ToString("0.00") + "\n" +debug + "\n index: " + index;;
+					return gradPosition[indexToReturn];
 				}
 				else
 				{
-					return debug + "\n index: " + index;
+					return 0;
 				}
 			} // end method GetCoordinates
 
