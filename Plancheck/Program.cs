@@ -104,7 +104,7 @@ namespace VMS.TPS
 			var samplesY = (int)Math.Ceiling(( bottomProfileStart - bottomProfileEnd ).Length/steps) ;
 			var profY = image.GetImageProfile( bottomProfileStart , bottomProfileEnd , new double [samplesY]) ;
 
-
+/*
 			MessageBox.Show("Plan iso: " + planIso.x.ToString("0.0") + "\t" + planIso.y.ToString("0.0") + "\n" +
 			"User Origo: " + imageUserOrigo.x.ToString("0.0")  + "\t" + imageUserOrigo.y.ToString("0.0")  + "\n" +
 			"CT origo: " + imageCTO.x.ToString("0.0") + "\t" + imageCTO.y.ToString("0.0")  +  "\n" +
@@ -118,7 +118,7 @@ namespace VMS.TPS
 			"Number of samples\t" + samplesY + "\n" +
 			//"PlaneImageCenter\t" + isoPlaneImageCenter.y + "\n" +
 			image.XDirection.y);
-				
+*/				
 
 				//var imageRes = new double[] {image.XRes,image.YRes,image.ZRes};		// voxel size in mm
 				//var imageVoxSize = new int[] {image.XSize, Image.YSize, Image.ZSize};		// image size in voxels
@@ -149,20 +149,7 @@ debug1 += coo[i].ToString("0.0") + "\t" + valHU[i].ToString("0.0") + "\n";
 // Get the coordinate (dicom) that represents inner bottom of laxbox (-1 in box-coordinates)
 	double coordBoxBottom = getCoordinates(coo, valHU, lax.GradientHUPerMm, lax.DistanceInMm, lax.PositionToleranceMm, lax.gradIndexForCoord );
 // in Boxcoordinates this is equal to -2 in ant-post, can then check the coordinates for user origo in y which should be 95 (in SRS coord) by adding -97 to found coordinate
-string UserOrigoCheck ="";
-if(Math.Abs(image.UserOrigin.y - (coordBoxBottom - 97))<1)
-{
-UserOrigoCheck ="Origo is correct within 1 mm";
-}
-else if(Math.Abs(image.UserOrigin.y - (coordBoxBottom - 97))<2)
-{
-UserOrigoCheck ="Origo is correct within 2 mm";
-}
-else 
-{
-UserOrigoCheck ="Check position of user origo";
-}
-MessageBox.Show(UserOrigoCheck);
+
 
 
 // ************************************ get profiles in x direction, left and right side and detemine center of box ********************
@@ -227,10 +214,24 @@ MessageBox.Show(debugRight);
 double coordBoxLeft = getCoordinates(cooLeft, valHULeft, laxSide.GradientHUPerMm, laxSide.DistanceInMm, laxSide.PositionToleranceMm, laxSide.gradIndexForCoord );
 double coordBoxRight = getCoordinates(cooRight, valHURight, laxSide.GradientHUPerMm, laxSide.DistanceInMm, laxSide.PositionToleranceMm, laxSide.gradIndexForCoord );
 
-MessageBox.Show(coordBoxLeft.ToString("0.0") + "\t" + coordBoxRight.ToString("0.0") );
+MessageBox.Show(coordBoxLeft.ToString("0.0") + "\t" + coordBoxRight.ToString("0.0") + "\n" +
+((coordBoxRight+coordBoxLeft)/2).ToString("0.0") );
 
 
-
+string UserOrigoCheck ="";
+if(Math.Abs(image.UserOrigin.y - (coordBoxBottom - 97))<2 && Math.Abs(image.UserOrigin.x-((coordBoxRight+coordBoxLeft)/2)) <2 )
+{
+UserOrigoCheck = "User origo position in SRS frame seems OK in Lat and Vrt.";
+}
+else if(coordBoxBottom ==0 || coordBoxRight == 0 || coordBoxLeft == 0)
+{
+UserOrigoCheck = "Cannot find the SRS-frame, no automatic check of User origo possible.";
+}
+else
+{
+UserOrigoCheck ="Check position of user origo";
+}
+MessageBox.Show(UserOrigoCheck);
 
 
 
