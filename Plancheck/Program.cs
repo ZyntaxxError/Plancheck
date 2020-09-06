@@ -170,19 +170,26 @@ MessageBox.Show(UserOrigoCheck);
 
 
 			VVector leftProfileStart = image.UserOrigin;				// only to get the z-coord of the user origo, x and y coord will be reassigned
+			VVector rightProfileStart = image.UserOrigin;				// only to get the z-coord of the user origo, x and y coord will be reassigned
 			leftProfileStart.x = xLeftUpperCorner + image.XRes;			// start 1 pixel in left side
+			rightProfileStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;			// start 1 pixel in right side
 			leftProfileStart.y = coordBoxBottom - 93.5; 				// hopefully between fidusles...
+			rightProfileStart.y = leftProfileStart.y;
 			double stepsX =  image.XRes;				//   (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
  
 			VVector leftProfileEnd = leftProfileStart;
-			leftProfileEnd.x += 100*stepsX;					// endpoint 100 steps in -y direction
+			VVector rightProfileEnd = rightProfileStart;
+			leftProfileEnd.x += 100*stepsX;					// endpoint 100 steps in  direction
+			rightProfileEnd.x -= 100*stepsX;
 
 			var samplesX = (int)Math.Ceiling(( leftProfileStart - leftProfileEnd ).Length/stepsX) ;
+
 			var profLeft = image.GetImageProfile( leftProfileStart , leftProfileEnd , new double [samplesX]) ;
+			var profRight = image.GetImageProfile( rightProfileStart , rightProfileEnd , new double [samplesX]) ;
 
 
 
-/**
+
 		List<double> valHULeft = new List<double>();
 		List<double> cooLeft = new List<double>();
 string debugLeft = "";
@@ -193,20 +200,42 @@ string debugLeft = "";
 debugLeft += cooLeft[i].ToString("0.0") + "\t" + valHULeft[i].ToString("0.0") + "\n";
 		}
 
-MessageBox.Show(debugLeft);
+
+		List<double> valHURight = new List<double>();
+		List<double> cooRight = new List<double>();
+string debugRight = "";
+		for(int i=0;i<samplesX;i++)
+		{
+				valHURight.Add(profRight[i].Value);
+				cooRight.Add(profRight[i].Position.x);
+debugLeft += cooRight[i].ToString("0.0") + "\t" + valHURight[i].ToString("0.0") + "\n";
+		}
 
 
-double coordBoxLeft = getCoordinates(cooLeft, valHULeft, lax.GradientHUPerMm, lax.DistanceInMm, lax.PositionToleranceMm, lax.gradIndexForCoord );
 
-MessageBox.Show(coordBoxLeft.ToString("0.0"));
+MessageBox.Show(debugRight);
 
-*/
+			//***********  Gradient patter describing expected profile in HU of the Lax-box side, from outside to inside **********
+
+			PatternGradient laxSide = new PatternGradient();
+            	laxSide.DistanceInMm = new List<double>(){0, 4.4, 12.3, 6};		// distance between gradients, mean values from profiling 10 pat 
+            	laxSide.GradientHUPerMm = new List<int>(){100, -100, 100, -100};
+		laxSide.PositionToleranceMm = 3;						// tolerance for the gradient position
+		laxSide.gradIndexForCoord = 2;						// index of gradient position to return (zero based index)
+
+
+double coordBoxLeft = getCoordinates(cooLeft, valHULeft, laxSide.GradientHUPerMm, laxSide.DistanceInMm, laxSide.PositionToleranceMm, laxSide.gradIndexForCoord );
+double coordBoxRight = getCoordinates(cooRight, valHURight, laxSide.GradientHUPerMm, laxSide.DistanceInMm, laxSide.PositionToleranceMm, laxSide.gradIndexForCoord );
+
+MessageBox.Show(coordBoxLeft.ToString("0.0") + "\t" + coordBoxRight.ToString("0.0") );
 
 
 
 
 
-*********************************    normal checks *********************************
+
+
+//*********************************    normal checks *********************************
 
 
 				// TODO check if isocenter in same plane as user origo, not neccesary though as there can be multiple isocenters (muliple plans)
