@@ -146,11 +146,12 @@ debug1 += coo[i].ToString("0.0") + "\t" + valHU[i].ToString("0.0") + "\n";
 		}
 //MessageBox.Show(debug1);
 
-// Get the coordinate (dicom) that represents inner bottom of laxbox (-1 in box-coordinates)
+// Get the coordinate (dicom) that represents inner bottom of laxbox (-2 in box-coordinates)
 	double coordBoxBottom = getCoordinates(coo, valHU, lax.GradientHUPerMm, lax.DistanceInMm, lax.PositionToleranceMm, lax.gradIndexForCoord );
 // in Boxcoordinates this is equal to -2 in ant-post, can then check the coordinates for user origo in y which should be 95 (in SRS coord) by adding -97 to found coordinate
 
-
+if( coordBoxBottom != 0 )
+{
 
 // ************************************ get profiles in x direction, left and right side and detemine center of box ********************
 
@@ -184,46 +185,48 @@ string debugLeft = "";
 		{
 				valHULeft.Add(profLeft[i].Value);
 				cooLeft.Add(profLeft[i].Position.x);
-debugLeft += cooLeft[i].ToString("0.0") + "\t" + valHULeft[i].ToString("0.0") + "\n";
+if(i>0){
+debugLeft += cooLeft[i].ToString("0.0") + "\t" + (valHULeft[i]-valHULeft[i-1]).ToString("0.0") + "\n";
+}
 		}
 
 
 		List<double> valHURight = new List<double>();
 		List<double> cooRight = new List<double>();
-string debugRight = "";
+//string debugRight = "";
 		for(int i=0;i<samplesX;i++)
 		{
 				valHURight.Add(profRight[i].Value);
 				cooRight.Add(profRight[i].Position.x);
-debugLeft += cooRight[i].ToString("0.0") + "\t" + valHURight[i].ToString("0.0") + "\n";
+//debugLeft += cooRight[i].ToString("0.0") + "\t" + valHURight[i].ToString("0.0") + "\n";
 		}
 
 
 
-MessageBox.Show(debugRight);
+//MessageBox.Show(debugLeft);
 
 			//***********  Gradient patter describing expected profile in HU of the Lax-box side, from outside to inside **********
 
 			PatternGradient laxSide = new PatternGradient();
-            	laxSide.DistanceInMm = new List<double>(){0, 4.4, 12.3, 6};		// distance between gradients, mean values from profiling 10 pat 
-            	laxSide.GradientHUPerMm = new List<int>(){100, -100, 100, -100};
-		laxSide.PositionToleranceMm = 3;						// tolerance for the gradient position
+            	laxSide.DistanceInMm = new List<double>(){0, 2, 13};		// distance between gradients, mean values from profiling 10 pat 
+            	laxSide.GradientHUPerMm = new List<int>(){100, -100, 100};
+		laxSide.PositionToleranceMm = 2;						// tolerance for the gradient position
 		laxSide.gradIndexForCoord = 2;						// index of gradient position to return (zero based index)
 
 
 double coordBoxLeft = getCoordinates(cooLeft, valHULeft, laxSide.GradientHUPerMm, laxSide.DistanceInMm, laxSide.PositionToleranceMm, laxSide.gradIndexForCoord );
 double coordBoxRight = getCoordinates(cooRight, valHURight, laxSide.GradientHUPerMm, laxSide.DistanceInMm, laxSide.PositionToleranceMm, laxSide.gradIndexForCoord );
 
-MessageBox.Show(coordBoxLeft.ToString("0.0") + "\t" + coordBoxRight.ToString("0.0") + "\n" +
-((coordBoxRight+coordBoxLeft)/2).ToString("0.0") );
+//MessageBox.Show(coordBoxLeft.ToString("0.0") + "\t" + coordBoxRight.ToString("0.0") + "\n" + ((coordBoxRight+coordBoxLeft)/2).ToString("0.0") );
 
 
 string UserOrigoCheck ="";
-if(Math.Abs(image.UserOrigin.y - (coordBoxBottom - 97))<2 && Math.Abs(image.UserOrigin.x-((coordBoxRight+coordBoxLeft)/2)) <2 )
+if(Math.Abs(image.UserOrigin.y - (coordBoxBottom - 96))<3 && Math.Abs(image.UserOrigin.x-((coordBoxRight+coordBoxLeft)/2)) <3 )
 {
-UserOrigoCheck = "User origo position in SRS frame seems OK in Lat and Vrt.";
+UserOrigoCheck = "User origo position in SRS frame seems OK in Lat and Vrt." + "\n\n" + "Estimated position in SRS frame coordinates from image profiles: \n\n" +
+" Lat: " + (-(image.UserOrigin.x-((coordBoxRight+coordBoxLeft)/2)-300)).ToString("0.0") + "\t Vrt: " + Math.Abs(image.UserOrigin.y - (coordBoxBottom - 1)).ToString("0.0") +  "\t (+/- 2mm)";
 }
-else if(coordBoxBottom ==0 || coordBoxRight == 0 || coordBoxLeft == 0)
+else if(coordBoxRight == 0 || coordBoxLeft == 0)
 {
 UserOrigoCheck = "Cannot find the SRS-frame, no automatic check of User origo possible.";
 }
@@ -233,29 +236,17 @@ UserOrigoCheck ="Check position of user origo";
 }
 MessageBox.Show(UserOrigoCheck);
 
+}
 
 
 
-//*********************************    normal checks *********************************
 
 
 				// TODO check if isocenter in same plane as user origo, not neccesary though as there can be multiple isocenters (muliple plans)
 
 
-/*
+//*********************************    "normal" checks *********************************
 
-		public ImageProfile getImageProfileXThroughIsocenter ( PlanSetup plan )
-		{
-			double steps =  plan.StructureSet.Image.XRes;
-			var endPoint = imageUserOrigo;
-			endPoint.x += 5;
-			var profX = new ImageProfile[1];
-			//var samples = (int)Math.Ceiling(( endPoint - startPoint ).Length/steps) ;
-			profX = image.GetImageProfile( planIso , endPoint , new double[samples]) ;
-
-		return profX ;
-		}
-*/
 
 
 
@@ -313,7 +304,7 @@ MessageBox.Show(UserOrigoCheck);
 			return cResults;
 		}
 
-		// ********* 	Targetvolym; kollar att det är valt och av typen PTV *********
+		// ********* 	Targetvolym; kollar att det är valt och av Dicom-typen PTV *********
 
 		public string CheckPlanProp(PlanSetup plan, StructureSet sSet)
 		{
@@ -380,18 +371,22 @@ MessageBox.Show(UserOrigoCheck);
 		}
 
 
-		// ********* 	Kontroll av Setup-fält, namngivning	********* 
+		// ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
 
 		public string CheckSetupField(PlanSetup plan)
 		{
-			string cResults = "Setup-field: \t";
+			string cResults = "";
 			int countSetupfields = 0;
 			foreach (var beam in plan.Beams)
 			{
 				if (beam.IsSetupField)
 				{
-					cResults = cResults + beam.Id + "\t \t";
+					cResults = cResults + "Setup-field: \t" + beam.Id + "\t \t";
 					countSetupfields++;
+					if (beam.ControlPoints.First().PatientSupportAngle != 0)
+					{
+					cResults += "** Couch angle not 0!";
+					}
 					if (beam.Id.ToUpper().Substring(0, 2).Equals(plan.Id.ToUpper().Substring(0, 2)))
 					{
 						if (beam.Id.ToUpper().Contains("CBCT"))
@@ -424,9 +419,9 @@ MessageBox.Show(UserOrigoCheck);
 		string trimmedID = beam.Id.Substring(2).Trim();			// start iteration at index 2 (PX index 0 and 1)
 		int gantryAngleInBeamID = 1000;
 		int test = 0;
-			for (int i=1; i<trimmedID.Length; i++)				
+			for (int i=1; i<trimmedID.Length+1; i++)				
 			{
-				if (Int32.TryParse(trimmedID.Substring(0,i), out test))					// try parsing it to int and
+				if (Int32.TryParse(trimmedID.Substring(0,i), out test))					//  step up one char at a time and try parsing it to int. If successful assign it to gantryAngleInBeamID
 				{
 					gantryAngleInBeamID = test;
 				}
@@ -435,12 +430,16 @@ MessageBox.Show(UserOrigoCheck);
 			{
 				if(gantryAngleInBeamID == Math.Round(beam.ControlPoints.First().GantryAngle))
 				{
-				cResults = "OK";
+				cResults += "OK";
 				}
 				else
 				{
-				cResults = "Check name!";
+				cResults += "Check name!";
 				}
+			} 
+			else
+			{ 
+			cResults += "Check name!";
 			}
 		return cResults;
 		}
