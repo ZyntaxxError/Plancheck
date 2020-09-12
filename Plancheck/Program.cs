@@ -14,7 +14,7 @@ using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
 
 
-
+// TODO: create plan category (enum) and separate checks for tbi, srs etc
 
 namespace VMS.TPS
 {
@@ -45,19 +45,20 @@ namespace VMS.TPS
 				CheckSetupField(plan) + "\n" +
 				"Treatment fields \n" +
 				"ID \t Energy \t Tech. \t Drate \t MLC \n" +
-				CheckFieldRules(plan);
+				CheckFieldRules(plan) + 
+				CheckConsecutiveNaming(course, plan);
 
 				MessageBox.Show(message);
 
 
 
-				// testing ground
+                #region testing ground
 
 
 
 
 
-				var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
+                var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
 				var image = plan.StructureSet.Image;
 				var imageUserOrigo = image.UserOrigin;             // mm från origo satt från CT vilket är dicom-origo!The user origin in DICOM coordinates in millimeter. 
 				var imageCTO = image.Origin;                // Ursprungligt origo satt från CT, mm från CT-origo TILL övre vänstra hörnet i första bilden!
@@ -245,7 +246,7 @@ namespace VMS.TPS
 
 				// TODO check if isocenter in same plane as user origo, not neccesary though as there can be multiple isocenters (muliple plans)
 
-
+				#endregion testing ground
 				//*********************************    "normal" checks *********************************
 
 
@@ -256,11 +257,17 @@ namespace VMS.TPS
 
 
 
+
+
+
+
 		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering, aning klent men bör fungera) *********
 
 		public bool IsPlanSRT(PlanSetup plan)
 		{
-			return (plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose > 6.0 && plan.TotalDose.Dose >= 45.0);
+			bool fractionationSRS = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose > 8.0 && plan.TotalDose.Dose >= 45.0) || (plan.NumberOfFractions > 7 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 45.0));
+
+			return fractionationSRS;
 		}
 
 
@@ -281,7 +288,7 @@ namespace VMS.TPS
 			return cResults + "\n";
 		}
 
-
+		
 
 
 		// ********* 	Kontroll av kliniskt protokoll-ID om sådant kopplat till plan, jämförs med plan-fraktionering *********
@@ -330,13 +337,12 @@ namespace VMS.TPS
 			return cResults + "\n";
 		}
 
-
-
+		
 
 
 		// ********* 	Kontroll av att bordsstruktur existerar, är av rätt typ, inte är tom och har korrekt HU 	********* 
-		// begränsningar: kollar ej positionering i förhållande till body, rätt bordstyp kollas enbart på namn
-		// Exact IGRT Couch, thin, medium och thick kan vara korrekt beroende på lokalisation...
+		// begränsningar: kollar ej positionering i förhållande till body, ej heller att den inte är kapad. Rätt bordstyp kollas enbart på namn
+		// Exact IGRT Couch, thin, medium och thick kan i princip vara korrekt beroende på lokalisation...
 
 		public string CheckCouchStructure(StructureSet SSet)
 		{
@@ -370,6 +376,44 @@ namespace VMS.TPS
 			}
 			return cResult;
 		}
+
+
+
+		// ********* 	Kontroll om numrering av planer och fält är konsekutivt, inkluderar enbart planer med statusnivå "reviewed" och högre och med
+		// *********	plan-ID som startar med P.
+
+		private string CheckConsecutiveNaming(Course course, PlanSetup plan)
+		{
+			string cResult = "";
+			/*
+			 * TODO: filter according to plan status and planID containing 'P'
+			 * 
+			 * internal check treatment fields (setup fields checked elsewhere)
+			 * 
+			 * 			foreach (var p in course.ExternalPlanSetups)
+			{
+
+			}
+			 * 
+			 * ny klass med extra properties, inherit from plan?
+			 */
+			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
+			{
+				cResult += beam.Id + "\t";
+			}
+			
+
+
+
+			return cResult;
+		}
+
+
+
+
+
+
+
 
 
 		// ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
@@ -477,7 +521,7 @@ namespace VMS.TPS
 					{
 						remarks += CheckDoseRateFFF(beam, ref countDoseRateFFFRemarks);
 					}
-					if (beam.MLCPlanType == MLCPlanType.ArcDynamic)
+					if (beam.MLCPlanType == MLCPlanType.ArcDynamic && IsPlanSRT(plan))
 					{
 						remarks += CheckArcDynFFF(beam, ref countArcDynFFFRemarks);
 						remarks += CheckArcDynCollAngle(beam, ref countArcDynCollAngleRemarks);
@@ -528,7 +572,7 @@ namespace VMS.TPS
 			string cResults = "";
 			if (countArcDynFFFRemarks < 1 && !beam.EnergyModeDisplayName.Contains("FFF"))
 			{
-				cResults = "** Change energy to FFF! \n";
+				cResults = "* Consider changing energy to FFF \n";
 				countArcDynFFFRemarks++;
 			}
 			return cResults;
