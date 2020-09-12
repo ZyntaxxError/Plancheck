@@ -14,7 +14,9 @@ using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
 
 
-// TODO: create plan category (enum) and separate checks for tbi, srs etc
+/* TODO: create plan category (enum) and separate checks for tbi, srs etc
+ * create static constant class with hard coded values ( and dummyNumber...)
+ * */
 
 namespace VMS.TPS
 {
@@ -46,7 +48,7 @@ namespace VMS.TPS
 				"Treatment fields \n" +
 				"ID \t Energy \t Tech. \t Drate \t MLC \n" +
 				CheckFieldRules(plan) + 
-				CheckConsecutiveNaming(course, plan);
+				CheckConsecutiveFieldNaming(course, plan);
 
 				MessageBox.Show(message);
 
@@ -378,38 +380,90 @@ namespace VMS.TPS
 		}
 
 
+		// ********* 	Kontroll att numrering av fält är konsekutivt, och att inte fältnumret använts i någon godkänd eller behandlad plan i samma Course *********
+		// kollar dock ej om man hoppar över ett nummer mellan planer
 
-		// ********* 	Kontroll om numrering av planer och fält är konsekutivt, inkluderar enbart planer med statusnivå "reviewed" och högre och med
-		// *********	plan-ID som startar med P.
-
-		private string CheckConsecutiveNaming(Course course, PlanSetup plan)
+		private string CheckConsecutiveFieldNaming(Course course, PlanSetup plan)
 		{
 			string cResult = "";
-			/*
-			 * TODO: filter according to plan status and planID containing 'P'
-			 * 
-			 * internal check treatment fields (setup fields checked elsewhere)
-			 * 
-			 * 			foreach (var p in course.ExternalPlanSetups)
-			{
 
-			}
-			 * 
-			 * ny klass med extra properties, inherit from plan?
-			 */
+			// ugly code, not DRY, but works, refactor somehow... but neccessary to check if Id is a number first and find the smallest
+
+			int smallestBeamNumber = 1000;		
+			int number = 1000;
+			var beamNumbersInOtherPlans = new List<int>();
+			beamNumbersInOtherPlans = GetBeamNumbersFromOtherPlans(course, plan);
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
-				cResult += beam.Id + "\t";
+				if (Int32.TryParse(beam.Id.Trim(), out number) )             
+				{
+                    if (number < smallestBeamNumber)
+                    {
+						smallestBeamNumber = number;
+                    }
+				}
+				else
+                {
+					cResult = " * Check field naming convention \t";
+					break;
+				}
 			}
-			
 
-
-
+			//Check that the beam numbers within the plan are consecutive and doesn't exist in other approved or completed plans within the same Course (Retired is ok if revision...)
+			// hmm, failes to check if a number is skipped... however, that should only be done if the plan is approved TODO
+			int i = 0;
+			if (smallestBeamNumber != 1000)
+            {
+				foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
+				{
+					if (Int32.TryParse(beam.Id.Trim(), out number))
+					{
+						if (number == smallestBeamNumber + i)
+						{
+                            if (beamNumbersInOtherPlans.Contains(number))
+                            {
+								cResult = " * Beam number used in other plan  \t";
+								break;
+							}
+							i++;
+						}
+						else
+						{
+							cResult = " * Fields should be consecutively named \t";
+							break;
+						}
+					}
+				}
+			}
 			return cResult;
 		}
 
-
-
+		/// <summary>
+		/// Get beam numbers from plans other than "plan" in the same course as "plan"
+		/// </summary>
+		/// <param name="course"></param>
+		/// <param name="plan"></param>
+		/// <returns></returns>
+		private static List<int> GetBeamNumbersFromOtherPlans(Course course, PlanSetup plan)
+        {
+			var beamNumbers = new List<int>();
+			int number = 1000;
+			foreach (var ps in course.PlanSetups.Where(p => p.Id != plan.Id))
+			{
+				if (ps.ApprovalStatus.ToString().Equals("PlanningApproved") || ps.ApprovalStatus.ToString().Equals("TreatmentApproved") || ps.ApprovalStatus.ToString().Equals("Completed") || ps.ApprovalStatus.ToString().Equals("CompletedEarly"))
+				{
+					foreach (var beam in ps.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
+					{
+						if (Int32.TryParse(beam.Id.Trim(), out number))
+						{
+							beamNumbers.Add(number);
+						}
+					}
+				}
+					
+			}
+				return beamNumbers;
+        }
 
 
 
@@ -432,15 +486,15 @@ namespace VMS.TPS
 					{
 						cResults += "** Couch angle not 0!";
 					}
-					if (beam.Id.ToUpper().Substring(0, 2).Equals(plan.Id.ToUpper().Substring(0, 2)))
+					if (beam.Id.ToUpper().Substring(0, 2).Equals(plan.Id.ToUpper().Substring(0, 2))) // naming convention, should start with first two char in plan ID
 					{
-						if (beam.Id.ToUpper().Contains("CBCT"))
+						if (beam.Id.ToUpper().Contains("CBCT"))	// no extra checks for cbct-setup field neccessary
 						{
 							cResults = cResults + "OK" + "\n";
 						}
 						else
 						{
-							cResults = cResults + CheckPlanarSetupFields(beam) + "\n";
+							cResults = cResults + CheckPlanarSetupFields(beam) + "\n";	// extra checks for planar setup fields
 						}
 					}
 					else
@@ -507,10 +561,9 @@ namespace VMS.TPS
 			int countArcDynCollAngleRemarks = 0;        // The collimator angle should be between +/-5 deg if dynamic arc used
 			int countArcCW = 0;
 			int countArcCCW = 0;                        // the absolute difference between CW and CCW should be less than two...
-			foreach (var beam in plan.Beams)
+
+			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
-				if (!beam.IsSetupField)
-				{
 					cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\n";
 					if (!beam.Technique.Id.Contains("SRS"))
 					{
@@ -538,12 +591,16 @@ namespace VMS.TPS
 					{
 						remarks += CheckArcStartStop(beam);
 					}
-				}
-				if (Math.Abs(countArcCCW - countArcCW) > 1)
-				{
-					remarks += "** Check the arc directions! \t";
-				}
 			}
+
+
+
+			if (Math.Abs(countArcCCW - countArcCW) > 1)
+			{
+				remarks += "** Check the arc directions! \t";
+			}
+
+
 			return cResults + "\n" + remarks;
 		}
 
