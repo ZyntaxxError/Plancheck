@@ -14,7 +14,7 @@ using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
 
 
-// TODO: Separate plans into different categories for different checks, i.e SRT, TBI, electrons
+
 
 namespace VMS.TPS
 {
@@ -39,7 +39,6 @@ namespace VMS.TPS
 
 				string message =
 				CheckCourseIntent(courseIntent, plan) + "\n" +
-				CheckCourseDiagnosis(course) +
 				CheckClinProt(plan) +
 				CheckPlanProp(plan, plan.StructureSet) +
 				CheckCouchStructure(plan.StructureSet) +
@@ -52,13 +51,13 @@ namespace VMS.TPS
 
 
 
-                // testing ground
+				// testing ground
 
 
-                #region testingground
 
 
-                var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
+
+				var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
 				var image = plan.StructureSet.Image;
 				var imageUserOrigo = image.UserOrigin;             // mm från origo satt från CT vilket är dicom-origo!The user origin in DICOM coordinates in millimeter. 
 				var imageCTO = image.Origin;                // Ursprungligt origo satt från CT, mm från CT-origo TILL övre vänstra hörnet i första bilden!
@@ -244,18 +243,16 @@ namespace VMS.TPS
 
 
 
-                // TODO check if isocenter in same plane as user origo, not neccesary though as there can be multiple isocenters (muliple plans)
-
-                #endregion normal checks
-                //*********************************    "normal" checks *********************************
+				// TODO check if isocenter in same plane as user origo, not neccesary though as there can be multiple isocenters (muliple plans)
 
 
+				//*********************************    "normal" checks *********************************
 
 
-            }
-        }
 
 
+			}
+		}
 
 
 
@@ -282,16 +279,6 @@ namespace VMS.TPS
 				cResults += "** Change course intent to SRT!";
 			}
 			return cResults + "\n";
-		}
-
-		private string CheckCourseDiagnosis(Course course)
-		{
-			string cResults = "";
-			if (!course.Diagnoses.Any())
-			{
-				cResults = "** Course diagnosis is missing!";
-			}
-			return cResults +"\n";
 		}
 
 
