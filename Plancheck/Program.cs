@@ -12,6 +12,7 @@ using System.Windows;
 using System.Linq;
 using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
+using System.Diagnostics;
 
 
 /* TODO: create plan category (enum) and separate checks for tbi, srs etc
@@ -53,14 +54,16 @@ namespace VMS.TPS
 				MessageBox.Show(message);
 
 
-
-                #region testing ground
-
+				
 
 
+				#region testing ground
 
 
-                var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
+
+
+
+				var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
 				var image = plan.StructureSet.Image;
 				var imageUserOrigo = image.UserOrigin;             // mm från origo satt från CT vilket är dicom-origo!The user origin in DICOM coordinates in millimeter. 
 				var imageCTO = image.Origin;                // Ursprungligt origo satt från CT, mm från CT-origo TILL övre vänstra hörnet i första bilden!
@@ -69,9 +72,9 @@ namespace VMS.TPS
 				double imageSizeX = image.XRes * image.XSize;
 				double imageSizeY = image.YRes * image.YSize;
 				double dist = VVector.Distance(imageCTO, imageUserOrigo);  // 3D distance from one koord to another, double 
-				var userIsoCoord = image.DicomToUser(planIso, plan);  // 
+				var userIsoCoord = image.DicomToUser(planIso, plan);  //   coordinates from USER ORIGO to iso
 
-				// VVector @ image center in iso plane in dicomcoordinates
+				// VVector @ image center in iso plane in dicomcoordinates   What...?
 				VVector isoPlaneImageCenter = planIso;
 
 
@@ -266,6 +269,57 @@ namespace VMS.TPS
 
 			return fractionationSRS;
 		}
+
+
+		// ********* Helper method for checking iso coordinates, returns VVector  
+		// transforms coordinates from dicom to coordinates based on coronal view from table end, dicom-origo the same (usually center of image in Lat, below table in vrt)
+		// TODO: check if this clashes with other properties in VVector   TODO: check if all fields same isocenter
+		// TODO: would be nice if coordinates instead originates from center of image (or center of couch) in Lat, and Couch top surface in Vrt (this would also mean a 
+		// chance to predict/estimate absolute couch coordinates in lat and vrt)
+		public VVector IsoPositionFromTableEnd(PlanSetup plan)
+        {
+
+			string message = "";
+			var image = plan.StructureSet.Image;
+			VVector planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
+
+
+
+            switch (plan.TreatmentOrientation.ToString())
+            {
+				case "FeetFirstSupine":
+                    {
+						planIso.x *= -1;
+						break;
+                    }
+				case "FeetFirstProne":
+					{
+						planIso.y *= -1;
+						break;
+					}
+				case "HeadFirstProne":
+					{
+						planIso.x *= -1;
+						planIso.y *= -1;
+						break;
+					}
+				default:
+                    break;
+            }
+			if (planIso.x < 0)
+			{
+				message = "icocenter left side \t" + planIso.x.ToString("0.0") + "\t default:" + plan.Beams.First().IsocenterPosition.x.ToString("0.0");
+			}
+			else
+			{
+				message = "icocenter right side \t" + planIso.x.ToString("0.0") + "\t default:" + plan.Beams.First().IsocenterPosition.x.ToString("0.0");
+			}
+
+
+			return planIso;
+		}
+
+
 
 		// ********* Kontroll av Course Intent, kollar om ifyllt, annars enbart SRS/SBRT-planer  *********
 
@@ -622,8 +676,6 @@ namespace VMS.TPS
 		// TODO: refactor this...
 		public string CheckMLCStaticFFF(PlanSetup plan, Beam beam, ref int countMLCStaticFFFRemarks)
 		{
-
-
 			string cResults = "";
 			if (countMLCStaticFFFRemarks < 1 && !beam.EnergyModeDisplayName.Contains("FFF") && !anyWedgesInPlan(plan))
 			{
@@ -632,7 +684,6 @@ namespace VMS.TPS
 			}
 			return cResults;
 		}
-
 		public bool anyWedgesInPlan(PlanSetup plan)
 		{
 			bool anyWedgesInPlan = false;
@@ -645,15 +696,6 @@ namespace VMS.TPS
 			}
 			return anyWedgesInPlan;
 		}
-
-
-
-
-
-
-
-
-
 
 
 // ********* 	Kontroll av kollimatorvinkel vid Dynamic Arc	*********
