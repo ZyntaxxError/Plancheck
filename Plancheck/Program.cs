@@ -258,21 +258,14 @@ namespace VMS.TPS
 		}
 
 
-
-
-
-
-
 		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering, aning klent men bör fungera) *********
 
 		public bool IsPlanSRT(PlanSetup plan)
 		{
-			bool fractionationSRS = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose > 8.0 && plan.TotalDose.Dose >= 45.0) || (plan.NumberOfFractions > 7 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 45.0));
+			bool fractionationSRS = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions > 7 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 45.0));
 
 			return fractionationSRS;
 		}
-
-
 
 		// ********* Kontroll av Course Intent, kollar om ifyllt, annars enbart SRS/SBRT-planer  *********
 
@@ -290,10 +283,8 @@ namespace VMS.TPS
 			return cResults + "\n";
 		}
 
-		
-
-
-		// ********* 	Kontroll av kliniskt protokoll-ID om sådant kopplat till plan, jämförs med plan-fraktionering *********
+		// ********* 	Kontroll av kliniskt protokoll-ID om sådant kopplat till plan och där antal fraktioner ges av protokoll-ID, jämförs med plan-fraktionering *********
+		// finns protokoll som inte har antal fraktioner i ID, går ej testa (finns metod, kolla detta) TODO
 
 		public string CheckClinProt(PlanSetup plan)
 		{
@@ -301,15 +292,19 @@ namespace VMS.TPS
 			int fractionsInProtocol = 0;
 			if (plan.ProtocolID.Length != 0)
 			{
-				int protocolFractionIndex = plan.ProtocolID.IndexOf('#');                   // find the index of the symbol indicating nr of fractions
-				string protocolFrNrInfo = plan.ProtocolID.Substring(protocolFractionIndex - 2, 2).Trim();       // retrieve the two characters before the #, and remove whitespaces
-				if (Int32.TryParse(protocolFrNrInfo, out fractionsInProtocol))                  // try parsing it to int and, if successful, compare to plan fractions
-				{
-					if (fractionsInProtocol != plan.NumberOfFractions)
+				int protocolFractionIndex = plan.ProtocolID.IndexOf('#'); // find the index of the symbol indicating nr of fractions
+                if (protocolFractionIndex != -1)							// if there are no fraktion specification in ID skip the test
+                {
+					string protocolFrNrInfo = plan.ProtocolID.Substring(protocolFractionIndex - 2, 2).Trim();       // retrieve the two characters before the #, and remove whitespaces
+					if (Int32.TryParse(protocolFrNrInfo, out fractionsInProtocol))                  // try parsing it to int and, if successful, compare to plan fractions
 					{
-						cResults = "** Check the attached clinical protocol! \n \n";
+						if (fractionsInProtocol != plan.NumberOfFractions)
+						{
+							cResults = "** Check the attached clinical protocol! \n \n";
+						}
 					}
 				}
+
 			}
 			return cResults;
 		}
@@ -329,7 +324,7 @@ namespace VMS.TPS
 				Structure target = sSet.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV").SingleOrDefault();
 				if (target == null)
 				{
-					cResults = "* Plan target volume should be of type PTV \n";
+					cResults = "* Plan target volume should be of type PTV (ignore this if only field limits drawn) \n";
 				}
 				else
 				{
@@ -340,8 +335,6 @@ namespace VMS.TPS
 		}
 
 		
-
-
 		// ********* 	Kontroll av att bordsstruktur existerar, är av rätt typ, inte är tom och har korrekt HU 	********* 
 		// begränsningar: kollar ej positionering i förhållande till body, ej heller att den inte är kapad. Rätt bordstyp kollas enbart på namn
 		// Exact IGRT Couch, thin, medium och thick kan i princip vara korrekt beroende på lokalisation...
@@ -379,7 +372,6 @@ namespace VMS.TPS
 			return cResult;
 		}
 
-
 		// ********* 	Kontroll att numrering av fält är konsekutivt, och att inte fältnumret använts i någon godkänd eller behandlad plan i samma Course *********
 		// kollar dock ej om man hoppar över ett nummer mellan planer
 
@@ -387,10 +379,11 @@ namespace VMS.TPS
 		{
 			string cResult = "";
 
-			// ugly code, not DRY, but works, refactor somehow... but neccessary to check if Id is a number first and find the smallest
+			// ugly code, but works, refactor somehow... but neccessary to check if Id is a number first and find the smallest
 
 			int smallestBeamNumber = 1000;		
 			int number = 1000;
+			var beamNumbersInPlan = new List<int>();
 			var beamNumbersInOtherPlans = new List<int>();
 			beamNumbersInOtherPlans = GetBeamNumbersFromOtherPlans(course, plan);
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
@@ -401,37 +394,35 @@ namespace VMS.TPS
                     {
 						smallestBeamNumber = number;
                     }
+					beamNumbersInPlan.Add(number);
 				}
 				else
                 {
 					cResult = " * Check field naming convention \t";
+					beamNumbersInPlan.Clear();
 					break;
 				}
 			}
-
 			//Check that the beam numbers within the plan are consecutive and doesn't exist in other approved or completed plans within the same Course (Retired is ok if revision...)
 			// hmm, failes to check if a number is skipped... however, that should only be done if the plan is approved TODO
 			int i = 0;
 			if (smallestBeamNumber != 1000)
-            {
-				foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
+			{
+				foreach (var n in beamNumbersInPlan.OrderBy(b => b))
 				{
-					if (Int32.TryParse(beam.Id.Trim(), out number))
+					if (n == smallestBeamNumber + i)
 					{
-						if (number == smallestBeamNumber + i)
+						if (beamNumbersInOtherPlans.Contains(n))
 						{
-                            if (beamNumbersInOtherPlans.Contains(number))
-                            {
-								cResult = " * Beam number used in other plan  \t";
-								break;
-							}
-							i++;
-						}
-						else
-						{
-							cResult = " * Fields should be consecutively named \t";
+							cResult = " * Beam number used in other plan  \t";
 							break;
 						}
+						i++;
+					}
+					else
+					{
+						cResult = " * Fields should be consecutively named \t";
+						break;
 					}
 				}
 			}
@@ -460,15 +451,9 @@ namespace VMS.TPS
 						}
 					}
 				}
-					
 			}
 				return beamNumbers;
         }
-
-
-
-
-
 
 		// ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
 
@@ -533,20 +518,19 @@ namespace VMS.TPS
 				}
 				else
 				{
-					cResults += "Check name!";
+					cResults += "* Check name!";
 				}
 			}
 			else
 			{
-				cResults += "Check name!";
+				cResults += "* Check name!";
 			}
 			return cResults;
 		}
 
 
-
 		// ********* 	Kontroll av diverse fältregler och "best practices"	********* 
-
+		// TODO: better sorting, maybe one general and then divided in categories. Missing case for Static-I and MLC doseDynamic (IMRT)
 
 		public string CheckFieldRules(PlanSetup plan)
 		{
@@ -557,7 +541,8 @@ namespace VMS.TPS
 			int countTreatFields = countFields - countSetupFields;
 			int countSRSRemarks = 0;                    // All fields should be SRS if SBRT- or SRS-plan
 			int countDoseRateFFFRemarks = 0;            // Dose rate should be maximum for FFF
-			int countArcDynFFFRemarks = 0;              // The energy should be FFF if dynamic arc used
+			int countArcDynFFFRemarks = 0;              // The energy should be FFF if dynamic arc used and SRS
+			int countMLCStaticFFFRemarks = 0;           // The energy should be FFF if static MLC (regardless of arc or static field) used and SRS
 			int countArcDynCollAngleRemarks = 0;        // The collimator angle should be between +/-5 deg if dynamic arc used
 			int countArcCW = 0;
 			int countArcCCW = 0;                        // the absolute difference between CW and CCW should be less than two...
@@ -565,7 +550,7 @@ namespace VMS.TPS
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
 					cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\n";
-					if (!beam.Technique.Id.Contains("SRS"))
+					if (!beam.Technique.Id.Contains("SRS") && IsPlanSRT(plan))
 					{
 						if (countSRSRemarks < 1) { remarks = remarks + "** Change technique to SRS-" + beam.Technique.Id + "! \n"; };
 						countSRSRemarks++;
@@ -579,6 +564,11 @@ namespace VMS.TPS
 						remarks += CheckArcDynFFF(beam, ref countArcDynFFFRemarks);
 						remarks += CheckArcDynCollAngle(beam, ref countArcDynCollAngleRemarks);
 					}
+					if (beam.MLCPlanType == MLCPlanType.Static && IsPlanSRT(plan))
+					{
+						remarks += CheckMLCStaticFFF(plan, beam, ref countMLCStaticFFFRemarks);
+					}
+					// the absolute difference between CW and CCW should be less than two...
 					if (beam.GantryDirection == GantryDirection.CounterClockwise)
 					{
 						countArcCCW++;
@@ -592,18 +582,12 @@ namespace VMS.TPS
 						remarks += CheckArcStartStop(beam);
 					}
 			}
-
-
-
 			if (Math.Abs(countArcCCW - countArcCW) > 1)
 			{
 				remarks += "** Check the arc directions! \t";
 			}
-
-
 			return cResults + "\n" + remarks;
 		}
-
 
 		// ********* 	Kontroll av dosrat vid FFF	*********
 
@@ -621,7 +605,6 @@ namespace VMS.TPS
 			return cResults;
 		}
 
-
 		// ********* 	Kontroll av energi vid Dynamic Arc	*********
 
 		public string CheckArcDynFFF(Beam beam, ref int countArcDynFFFRemarks)
@@ -635,10 +618,47 @@ namespace VMS.TPS
 			return cResults;
 		}
 
+		// ********* 	Kontroll av energi vid Statisk MLC och SRS	*********
+		// TODO: refactor this...
+		public string CheckMLCStaticFFF(PlanSetup plan, Beam beam, ref int countMLCStaticFFFRemarks)
+		{
 
-		// ********* 	Kontroll av kollimatorvinkel vid Dynamic Arc	*********
 
-		public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemarks)
+			string cResults = "";
+			if (countMLCStaticFFFRemarks < 1 && !beam.EnergyModeDisplayName.Contains("FFF") && !anyWedgesInPlan(plan))
+			{
+				cResults = "* Consider changing energy to FFF \n";
+				countMLCStaticFFFRemarks++;
+			}
+			return cResults;
+		}
+
+		public bool anyWedgesInPlan(PlanSetup plan)
+		{
+			bool anyWedgesInPlan = false;
+			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField))
+			{
+				if (beam.Wedges.Any())
+				{
+					anyWedgesInPlan = true;
+				}
+			}
+			return anyWedgesInPlan;
+		}
+
+
+
+
+
+
+
+
+
+
+
+// ********* 	Kontroll av kollimatorvinkel vid Dynamic Arc	*********
+
+public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemarks)
 		{
 			string cResults = "";
 			if (countArcDynCollAngleRemarks < 1 && beam.ControlPoints.First().CollimatorAngle > 5.0 && beam.ControlPoints.First().CollimatorAngle < 355.0)
