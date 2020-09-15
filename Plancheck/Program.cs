@@ -248,7 +248,7 @@ namespace VMS.TPS
 
 						VVector leftFidusStart = image.UserOrigin;                // only to get the z-coord of the user origo, x and y coord will be reassigned
 						//VVector rightFidusStart = image.UserOrigin;               // only to get the z-coord of the user origo, x and y coord will be reassigned
-						leftFidusStart.x = coordBoxLeft + 5;						// start 5 mm in from gradient found in previous step
+						leftFidusStart.x = coordBoxLeft + 4;						// start 4 mm in from gradient found in previous step
 						//rightFidusStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;         // start 1 pixel in right side
 						leftFidusStart.y = coordBoxBottom - 93.5;                  // hopefully between fidusles...
 																				   //rightFidusStart.y = leftProfileStart.y;
@@ -265,22 +265,19 @@ namespace VMS.TPS
 
 						var profLeftUpperFidus = image.GetImageProfile(leftFidusStart, leftFidusUpperEnd, new double[samplesleftFidusUpper]);
 
-						var profLeftLowerFidus = image.GetImageProfile(leftFidusStart, leftFidusLowerEnd, new double[samplesleftFidusLower]);
 
 
 
 
-						// TODO!!!!!!!!!!!!!!!!!!!!!!  somehow check max HU and step x 0.2 mm and take new profile, compare with previouse max
+
+						// TODO!!!!!!!!!!!!!!!!!!!!!!  Clean this shit up!!!!!!!  to early to define centain things...
 
 						List<double> valHULeftLower = new List<double>();
 						List<double> cooLeftLower = new List<double>();
 						string debugLeftLower = "";
+
+						var profLeftLowerFidus = image.GetImageProfile(leftFidusStart, leftFidusLowerEnd, new double[samplesleftFidusLower]);
 						debugLeftLower += "samples: " + samplesleftFidusLower + "\t" + profLeftLowerFidus[0].Position.x.ToString("0.0") + "\n";
-
-						//double maxHU = 0;
-
-
-
 
 						for (int i = 0; i < samplesleftFidusLower; i++)
 						{
@@ -288,13 +285,63 @@ namespace VMS.TPS
 							cooLeftLower.Add(profLeftLowerFidus[i].Position.y);
                             if (i>0)
                             {
-								debugLeftLower += (cooLeftLower[i]- cooLeftLower[i-1]).ToString("0.0") + "\t" + valHULeftLower[i].ToString("0.0") + "\n";
+								debugLeftLower += "";// (cooLeftLower[i]- cooLeftLower[i-1]).ToString("0.0") + "\t" + valHULeftLower[i].ToString("0.0") + "\n";
 							}
 						}
-						//maxHU = Math.Max(valHULeftLower)
+
+						// all this crap is to get the x-value that is centered in the fidusles...
+						double newMax = 0.0;
+						List<double> valHULeftLowerTemp = new List<double>();
+						List<double> cooLeftLowerTemp = new List<double>();
+						double finalXValue = 0;
+						for (int s = 0; s < 20; s++)
+                        {
+
+							leftFidusStart.x += 0.1;                        // step up 0.2 mm
+							leftFidusLowerEnd.x = leftFidusStart.x;
+
+							profLeftLowerFidus = image.GetImageProfile(leftFidusStart, leftFidusLowerEnd, new double[samplesleftFidusLower]);
+
+							for (int i = 0; i < samplesleftFidusLower; i++)
+							{
+								valHULeftLowerTemp.Add(profLeftLowerFidus[i].Value);
+								cooLeftLowerTemp.Add(profLeftLowerFidus[i].Position.y);
+								if (i > 0)
+								{
+									debugLeftLower += "";//(cooLeftLower[i] - cooLeftLower[i - 1]).ToString("0.0") + "\t" + valHULeftLower[i].ToString("0.0") + "\n";
+								}
+							}
+                            if (valHULeftLowerTemp.Max() > newMax)
+                            {
+								newMax = valHULeftLowerTemp.Max();
+								finalXValue = leftFidusStart.x;
+							}
+							//debugLeftLower += "\n" + newMax.ToString("0.0") + "\t" + valHULeftLowerTemp.Max().ToString("0.0");
+							valHULeftLowerTemp.Clear();
+							cooLeftLowerTemp.Clear();
+						}
+
+						leftFidusStart.x = finalXValue;                        // step up 0.2 mm
+						leftFidusLowerEnd.x = leftFidusStart.x;
+
+						profLeftLowerFidus = image.GetImageProfile(leftFidusStart, leftFidusLowerEnd, new double[samplesleftFidusLower]);
+						valHULeftLower.Clear();
+						cooLeftLower.Clear();
+						for (int i = 0; i < samplesleftFidusLower; i++)
+						{
+							valHULeftLower.Add(profLeftLowerFidus[i].Value);
+							cooLeftLower.Add(profLeftLowerFidus[i].Position.y);
+							if (i > 0)
+							{
+								debugLeftLower +=  (cooLeftLower[i]- cooLeftLower[i-1]).ToString("0.0") + "\t" + valHULeftLower[i].ToString("0.0") + "\n";
+							}
+						}
 
 
-						//MessageBox.Show(debugLeftLower);
+
+
+
+						MessageBox.Show(debugLeftLower);
 
 
 
