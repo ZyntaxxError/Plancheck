@@ -252,13 +252,14 @@ namespace VMS.TPS
 						//rightFidusStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;         // start 1 pixel in right side
 						leftFidusStart.y = coordBoxBottom - 93.5;                  // hopefully between fidusles...
 																				   //rightFidusStart.y = leftProfileStart.y;
-						double stepsFidusLower = 0.5;             //   (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
+						double stepsFidusLower = 0.5;             //   probably need sub-mm steps to get the fidusle-positions
 
 						VVector leftFidusUpperEnd = leftFidusStart;
 						VVector leftFidusLowerEnd = leftFidusStart;
 						//VVector rightProfileEnd = rightProfileStart;
 						leftFidusUpperEnd.y -= 105;                   // endpoint from dimension of box, 
-						leftFidusLowerEnd.y += 40;
+						int lowerProfileDistance = 40;
+						leftFidusLowerEnd.y += lowerProfileDistance;						// distance containing all fidusles determining the Long in 10 cm steps
 
 						var samplesleftFidusUpper = (int)Math.Ceiling((leftFidusStart - leftFidusUpperEnd).Length);
 						var samplesleftFidusLower = (int)Math.Ceiling((leftFidusStart - leftFidusLowerEnd).Length/stepsFidusLower);
@@ -266,7 +267,14 @@ namespace VMS.TPS
 						var profLeftUpperFidus = image.GetImageProfile(leftFidusStart, leftFidusUpperEnd, new double[samplesleftFidusUpper]);
 
 
+						leftFidusStart.x = getMaxHUX(image, leftFidusStart, leftFidusLowerEnd, 2, samplesleftFidusLower);                       // step up 0.2 mm
+						leftFidusLowerEnd.x = leftFidusStart.x;
+						leftFidusUpperEnd.x = leftFidusStart.x;
 
+						int numberOfFidusLeft = getNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
+
+
+						MessageBox.Show("kan det vara " + numberOfFidusLeft);
 
 
 
@@ -289,40 +297,13 @@ namespace VMS.TPS
 							}
 						}
 
-						// all this crap is to get the x-value that is centered in the fidusles...
-						double newMax = 0.0;
-						List<double> valHULeftLowerTemp = new List<double>();
-						List<double> cooLeftLowerTemp = new List<double>();
-						double finalXValue = 0;
-						for (int s = 0; s < 20; s++)
-                        {
 
-							leftFidusStart.x += 0.1;                        // step up 0.2 mm
-							leftFidusLowerEnd.x = leftFidusStart.x;
 
-							profLeftLowerFidus = image.GetImageProfile(leftFidusStart, leftFidusLowerEnd, new double[samplesleftFidusLower]);
 
-							for (int i = 0; i < samplesleftFidusLower; i++)
-							{
-								valHULeftLowerTemp.Add(profLeftLowerFidus[i].Value);
-								cooLeftLowerTemp.Add(profLeftLowerFidus[i].Position.y);
-								if (i > 0)
-								{
-									debugLeftLower += "";//(cooLeftLower[i] - cooLeftLower[i - 1]).ToString("0.0") + "\t" + valHULeftLower[i].ToString("0.0") + "\n";
-								}
-							}
-                            if (valHULeftLowerTemp.Max() > newMax)
-                            {
-								newMax = valHULeftLowerTemp.Max();
-								finalXValue = leftFidusStart.x;
-							}
-							//debugLeftLower += "\n" + newMax.ToString("0.0") + "\t" + valHULeftLowerTemp.Max().ToString("0.0");
-							valHULeftLowerTemp.Clear();
-							cooLeftLowerTemp.Clear();
-						}
 
-						leftFidusStart.x = finalXValue;                        // step up 0.2 mm
-						leftFidusLowerEnd.x = leftFidusStart.x;
+
+
+
 
 						profLeftLowerFidus = image.GetImageProfile(leftFidusStart, leftFidusLowerEnd, new double[samplesleftFidusLower]);
 						valHULeftLower.Clear();
@@ -333,12 +314,12 @@ namespace VMS.TPS
 							cooLeftLower.Add(profLeftLowerFidus[i].Position.y);
 							if (i > 0)
 							{
-								debugLeftLower +=  (cooLeftLower[i]- cooLeftLower[i-1]).ToString("0.0") + "\t" + valHULeftLower[i].ToString("0.0") + "\n";
+								debugLeftLower += "";// (cooLeftLower[i]- cooLeftLower[i-1]).ToString("0.0") + "\t" + valHULeftLower[i].ToString("0.0") + "\n";
 							}
 						}
 
 
-
+						
 
 
 						MessageBox.Show(debugLeftLower);
@@ -389,12 +370,6 @@ namespace VMS.TPS
 
 			}
 		}
-
-
-
-
-
-
 
 
 
@@ -982,6 +957,91 @@ public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemark
 
 
 		/// <summary>
+		/// gets the x-value where maximum HU is found when stepping the y-profile in the direction and range given in steps of 0.1 mm
+		/// </summary>
+		/// <param name="image"></param>
+		/// <param name="fidusStart"></param>
+		/// <param name="fidusEnd"></param>
+		/// <param name="dirLengthInmm"></param>
+		/// <param name="samples"></param>
+		/// <returns></returns>
+		public static double getMaxHUX(Image image, VVector fidusStart, VVector fidusEnd, double dirLengthInmm, int samples )
+		{
+			double newMax = 0.0;
+			List<double> HUTemp = new List<double>();
+			List<double> cooTemp = new List<double>();
+			double finalXValue = 0;
+			for (int s = 0; s < 10*Math.Abs(dirLengthInmm); s++)
+			{
+				fidusStart.x += 0.1* dirLengthInmm/ Math.Abs(dirLengthInmm);  // ugly way to get the direction                     
+				fidusEnd.x = fidusStart.x;
+
+				var profFidus = image.GetImageProfile(fidusStart, fidusEnd, new double[samples]);
+
+				for (int i = 0; i < samples; i++)
+				{
+					HUTemp.Add(profFidus[i].Value);
+					cooTemp.Add(profFidus[i].Position.y);
+				}
+				if (HUTemp.Max() > newMax)
+				{
+					newMax = HUTemp.Max();
+					finalXValue = fidusStart.x;
+				}
+				HUTemp.Clear();
+				cooTemp.Clear();
+			}
+			return finalXValue;
+		}
+
+
+
+		public int getNumberOfFidus(Image image, VVector fidusStart, VVector fidusEnd, int samples)
+		{
+			List<double> valHU = new List<double>();
+			List<double> coord = new List<double>();
+			double findGradientResult;
+
+			var profFidus = image.GetImageProfile(fidusStart, fidusEnd, new double[samples]);
+
+				for (int i = 0; i < samples; i++)
+				{
+					valHU.Add(profFidus[i].Value);
+					coord.Add(profFidus[i].Position.y);
+				}
+			var fid = new PatternGradient();
+			fid.DistanceInMm = new List<double>() { 0, 2 };        // distance between gradients, mean values from profiling 10 pat
+			fid.GradientHUPerMm = new List<int>() { 100, -100 };    // smallest number of fidusles is one?   
+			fid.PositionToleranceMm = 2;                        // tolerance for the gradient position, parameter to optimize depending probably of resolution of profile
+			fid.gradIndexForCoord = 0;                      // index of gradient position to return (zero based index)
+															// can use getCoordinates to get the number of fidusles? while getCoordinates != 0  add new object gradientClass and try again
+
+
+
+			findGradientResult = getCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.gradIndexForCoord);
+
+            while (findGradientResult != 0.0)
+            {
+
+				fid.DistanceInMm.Add(3);
+				fid.GradientHUPerMm.Add(100);
+				fid.DistanceInMm.Add(2);
+				fid.GradientHUPerMm.Add(-100);
+
+				fid.gradIndexForCoord++;
+				findGradientResult = getCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.gradIndexForCoord);
+
+			}
+
+
+			return fid.gradIndexForCoord;
+		}
+
+
+
+
+
+		/// <summary>
 		/// getCoordinates gives the Dicom-coordinates of a gradient 
 		/// </summary>
 		/// <param name="coord"> 1D coordinates of a profile</param>
@@ -990,7 +1050,7 @@ public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemark
 		/// <param name="distMm"> Distance in mm to the next gradient</param>
 		/// <param name="posTolMm"> Tolerance of position of found gradient in mm</param>
 		/// <returns></returns>
-		double getCoordinates(List<double> coord, List<double> valueHU, List<int> hUPerMm, List<double> distMm, int posTolMm, int indexToReturn)
+		public double getCoordinates(List<double> coord, List<double> valueHU, List<int> hUPerMm, List<double> distMm, int posTolMm, int indexToReturn)
 		{
 			string debug = "";
 			double[] grad = new double[coord.Count - 1];
