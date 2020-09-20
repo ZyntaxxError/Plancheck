@@ -18,6 +18,7 @@ using System.Security.Cryptography.X509Certificates;
 
 
 /* TODO: create plan category (enum) and separate checks for tbi, srs etc
+ * TODO: IsPlanSRT fails if a revision made...
 
  * 
  * */
@@ -171,7 +172,7 @@ namespace VMS.TPS
 
 					if (coordBoxBottom != 0)
 					{
-
+						MessageBox.Show("hittat bottom");
 						// ************************************ get profiles in x direction, left and right side and determine center of box ********************
 
 						// TODO VERIFY that the positions seems be reasonable by comparing with the expected width of the box
@@ -244,70 +245,74 @@ namespace VMS.TPS
 
 						// ************************************ get profiles in y direction through fidusles in user origo plane, left and right side and determine long value ********************
 
-
-
-						VVector leftFidusStart = image.UserOrigin;                // only to get the z-coord of the user origo, x and y coord will be reassigned
-						//VVector rightFidusStart = image.UserOrigin;               // only to get the z-coord of the user origo, x and y coord will be reassigned
-						leftFidusStart.x = coordBoxLeft + 3;						// start 3 mm in from gradient found in previous step
-						//rightFidusStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;         // start 1 pixel in right side
-						leftFidusStart.y = coordBoxBottom - 93.5;                  // hopefully between fidusles...
-																				   //rightFidusStart.y = leftProfileStart.y;
-						double stepsFidusLower = 0.5;             //   probably need sub-mm steps to get the fidusle-positions
-
-						VVector leftFidusUpperEnd = leftFidusStart;
-						VVector leftFidusLowerEnd = leftFidusStart;
-						//VVector rightProfileEnd = rightProfileStart;
-						
-						int lowerProfileDistance = 40;
-						int upperProfileDistance = 115;									// u gotta love magic numbers and hardcoded values ;)
-
-						leftFidusLowerEnd.y += lowerProfileDistance;                        // distance containing all fidusles determining the Long in 10 cm steps
-						leftFidusUpperEnd.y -= upperProfileDistance;                   // endpoint from dimension of box, 
-
-						var samplesleftFidusUpper = (int)Math.Ceiling((leftFidusStart - leftFidusUpperEnd).Length);
-						var samplesleftFidusLower = (int)Math.Ceiling((leftFidusStart - leftFidusLowerEnd).Length/stepsFidusLower);
-
-						var profLeftUpperFidus = image.GetImageProfile(leftFidusStart, leftFidusUpperEnd, new double[samplesleftFidusUpper]);
-
-						// Since the SRS-box walls flexes, the x-coordinate for upper profile differs from start to end
-						// get the max HU in the upper part of the box ( top-most fidusel ) to determine the final x-value for the profile
-						var upperFid = leftFidusUpperEnd;
-						upperFid.y += 20; 
-						leftFidusUpperEnd.x = getMaxHUX(image, upperFid, leftFidusUpperEnd, 3, samplesleftFidusLower);
-						leftFidusStart.x = getMaxHUX(image, leftFidusStart, leftFidusLowerEnd, 2, samplesleftFidusLower);                       // step up 0.2 mm
-						leftFidusLowerEnd.x = leftFidusStart.x;
-
-						
-
-
-						int numberOfFidusLeft = getNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
-
-
-						double fidusLong = getLongFidus(image, leftFidusStart, leftFidusUpperEnd, upperProfileDistance * 2);
-
-						int userOrigoLatSRS = Convert.ToInt32(Math.Round(Math.Abs(image.UserOrigin.y - (coordBoxBottom - 1))));
-						int userOrigoVrtSRS = Convert.ToInt32(Math.Round(-(image.UserOrigin.x - ((coordBoxRight + coordBoxLeft) / 2) - 300)));
-						int userOrigoLongSRS = numberOfFidusLeft * 100 + Convert.ToInt32(Math.Round(fidusLong));
-
-
-
-						string UserOrigoCheck = "";
-						if (coordBoxRight == 0 || coordBoxLeft == 0)
+						if (coordBoxLeft != 0.0 && coordBoxRight != 0.0)
 						{
-							UserOrigoCheck = "Cannot find the SRS-frame, no automatic check of User origo possible.";
-						}
-						else if (Math.Abs(image.UserOrigin.y - (coordBoxBottom - 96)) < 3 && Math.Abs(image.UserOrigin.x - ((coordBoxRight + coordBoxLeft) / 2)) < 3)
-						{
-							UserOrigoCheck = "Estimated position of user origin in SRS frame coordinates from image profiles: \n\n" +
-							" Lat: " + userOrigoLatSRS + "\t Vrt: " + userOrigoVrtSRS + "\t Lng: " + userOrigoLongSRS + "\t (+/- 2mm)" + 
-							"\n\n";
+
+							VVector leftFidusStart = image.UserOrigin;                // only to get the z-coord of the user origo, x and y coord will be reassigned
+																					  //VVector rightFidusStart = image.UserOrigin;               // only to get the z-coord of the user origo, x and y coord will be reassigned
+							leftFidusStart.x = coordBoxLeft + 3;                        // start 3 mm in from gradient found in previous step
+																						//rightFidusStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;         // start 1 pixel in right side
+							leftFidusStart.y = coordBoxBottom - 93.5;                  // hopefully between fidusles...
+																					   //rightFidusStart.y = leftProfileStart.y;
+							double stepsFidusLower = 0.5;             //   probably need sub-mm steps to get the fidusle-positions
+
+							VVector leftFidusUpperEnd = leftFidusStart;
+							VVector leftFidusLowerEnd = leftFidusStart;
+							//VVector rightProfileEnd = rightProfileStart;
+
+							int lowerProfileDistance = 40;
+							int upperProfileDistance = 115;                                 // u gotta love magic numbers and hardcoded values ;)
+
+							leftFidusLowerEnd.y += lowerProfileDistance;                        // distance containing all fidusles determining the Long in 10 cm steps
+							leftFidusUpperEnd.y -= upperProfileDistance;                   // endpoint from dimension of box, 
+
+							var samplesleftFidusUpper = (int)Math.Ceiling((leftFidusStart - leftFidusUpperEnd).Length);
+							var samplesleftFidusLower = (int)Math.Ceiling((leftFidusStart - leftFidusLowerEnd).Length / stepsFidusLower);
+
+							var profLeftUpperFidus = image.GetImageProfile(leftFidusStart, leftFidusUpperEnd, new double[samplesleftFidusUpper]);
+
+							// Since the SRS-box walls flexes, the x-coordinate for upper profile differs from start to end
+							// get the max HU in the upper part of the box ( top-most fidusel ) to determine the final x-value for the profile
+							var upperFid = leftFidusUpperEnd;
+							upperFid.y += 20;
+							leftFidusUpperEnd.x = getMaxHUX(image, upperFid, leftFidusUpperEnd, 3, samplesleftFidusLower);
+							leftFidusStart.x = getMaxHUX(image, leftFidusStart, leftFidusLowerEnd, 2, samplesleftFidusLower);                       // step up 0.2 mm
+							leftFidusLowerEnd.x = leftFidusStart.x;
+
+
+
+
+							int numberOfFidusLeft = getNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
+
+
+							double fidusLong = getLongFidus(image, leftFidusStart, leftFidusUpperEnd, upperProfileDistance * 2);
+
+							int userOrigoVrtSRS = Convert.ToInt32(Math.Round(Math.Abs(image.UserOrigin.y - (coordBoxBottom - 1))));
+							int userOrigoLatSRS = Convert.ToInt32(Math.Round(-(image.UserOrigin.x - ((coordBoxRight + coordBoxLeft) / 2) - 300)));
+							int userOrigoLongSRS = numberOfFidusLeft * 100 + Convert.ToInt32(Math.Round(fidusLong));
+
+
+
+							string UserOrigoCheck = "";
+							if (coordBoxRight == 0 || coordBoxLeft == 0)
+							{
+								UserOrigoCheck = "Cannot find the SRS-frame, no automatic check of User origo possible.";
+							}
+							else if (Math.Abs(image.UserOrigin.y - (coordBoxBottom - 96)) < 3 && Math.Abs(image.UserOrigin.x - ((coordBoxRight + coordBoxLeft) / 2)) < 3)
+							{
+								UserOrigoCheck = "Estimated position of user origin in SRS frame coordinates from image profiles: \n\n" +
+								" Lat: " + userOrigoLatSRS + "\t Vrt: " + userOrigoVrtSRS + "\t Lng: " + userOrigoLongSRS + "\t (+/- 2mm)" +
+								"\n\n";
+
+							}
+							else
+							{
+								UserOrigoCheck = "Check position of user origo";
+							}
+							MessageBox.Show(UserOrigoCheck);
+
 
 						}
-						else
-						{
-							UserOrigoCheck = "Check position of user origo";
-						}
-						MessageBox.Show(UserOrigoCheck);
 
 					}
 
@@ -370,7 +375,7 @@ namespace VMS.TPS
 		// chance to predict/estimate absolute couch coordinates in lat and vrt)
 		public VVector IsoPositionFromTableEnd(PlanSetup plan)
         {
-			var image = plan.StructureSet.Image;
+			//var image = plan.StructureSet.Image;
 			VVector planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
             switch (plan.TreatmentOrientation.ToString())
             {
@@ -981,17 +986,13 @@ public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemark
 
             while (findGradientResult != 0.0)
             {
-
 				fid.DistanceInMm.Add(3);
 				fid.GradientHUPerMm.Add(100);
 				fid.DistanceInMm.Add(2);
 				fid.GradientHUPerMm.Add(-100);
-
 				fid.gradIndexForCoord++;
 				findGradientResult = getCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.gradIndexForCoord);
-
 			}
-
 
 			return fid.gradIndexForCoord;
 		}
@@ -1041,26 +1042,22 @@ public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemark
 		/// <returns></returns>
 		public double getCoordinates(List<double> coord, List<double> valueHU, List<int> hUPerMm, List<double> distMm, int posTolMm, int indexToReturn)
 		{
-			string debug = "";
+			//string debug = "";
 			double[] grad = new double[coord.Count - 1];
 			double[] pos = new double[coord.Count - 1];
 			int index = 0;
-
-				for (int i = 0; i < coord.Count - 1; i++)
+			// resample profile to gradient with position inbetween profile points ( number of samples decreases with one)
+			for (int i = 0; i < coord.Count - 1; i++)
 			{
 				pos[i] = (coord[i] + coord[i + 1]) / 2;
 				grad[i] = (valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i]);
 			}
 
-
 			List<double> gradPosition = new List<double>();
+			int indexToReturnToInCaseOfFail = 0;
 
-
-
-			for (int i = 0; i < coord.Count - 1; i++)
+			for (int i = 0; i < pos.Count(); i++)
 			{
-				pos[i] = (coord[i] + coord[i + 1]) / 2;
-				grad[i] = (valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i]);
 				if (index == hUPerMm.Count())                        //break if last condition passed 
 				{
 					break;
@@ -1068,26 +1065,41 @@ public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemark
 				// if gradient larger than given gradient and in the same direction
 				if (Math.Abs((valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i])) > (Math.Abs(hUPerMm[index])) && sameSign(grad[i], hUPerMm[index]))
 				{
-					//Might not be the largest gradient in the visinity even if conditions met, step to next and check. If steeper, take that position instead 
+					//Might not be the largest gradient in the vicinity even if conditions met, step to next and check. If steeper, take that position instead 
 					while (Math.Abs((valueHU[i + 2] - valueHU[i + 1])) > Math.Abs((valueHU[i + 1] - valueHU[i])) && sameSign((valueHU[i + 2] - valueHU[i + 1]), (valueHU[i + 1] - valueHU[i])) && i < coord.Count - 1)
 					{
 						i++;
 					}
-					gradPosition.Add(pos[i]);
 					if (index == 0)     // if this is the first gradient (i.e. index == 0), cannot yet compare the distance between the gradients, step up index and continue
 					{
-						debug += pos[i].ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
+						//debug += pos[i].ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
+						gradPosition.Add(pos[i]);
 						index++;
 					}
-					//  compare the distance between the gradients to the criteria given, step up index and continue
-					else if ((Math.Abs(gradPosition[index] - gradPosition[index - 1]) > (distMm[index] - posTolMm)) && (Math.Abs(gradPosition[index] - gradPosition[index - 1]) < (distMm[index] + posTolMm))) // jämför avstånd mellan gradienter mot angett avstånd +/- marginal
+					// if gradient found sooner than expected (outside tolerance), keep looking
+					else if ((Math.Abs(pos[i] - gradPosition[index - 1]) < (distMm[index] - posTolMm)))
 					{
-						debug += pos[i].ToString("0.0") + "\t" + (gradPosition[index] - gradPosition[index - 1]).ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
-						//gradPosition.Add(pos[i]);
+						//debug += pos[i].ToString("0.0") + "\t" + (gradPosition[index] - gradPosition[index - 1]).ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
+						i++;
+					}
+					//  compare the distance between the gradients to the criteria given, step up index and continue if within tolerance
+					else if ((Math.Abs(pos[i] - gradPosition[index - 1]) > (distMm[index] - posTolMm)) && (Math.Abs(pos[i] - gradPosition[index - 1]) < (distMm[index] + posTolMm))) 
+					{
+						//debug += pos[i].ToString("0.0") + "\t" + (gradPosition[index] - gradPosition[index - 1]).ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
+						gradPosition.Add(pos[i]);
 						index++;
+                        if (index == 1)
+                        {
+							indexToReturnToInCaseOfFail = i;
+                        }
 					}
 					else
-					{                   // if not first gradient and distance betwen the gradients not met within the tolerance, reset index and positions and continue search
+					{   // if not the first gradient and the distance betwen the gradients are not met within the tolerance; reset index and positions and continue search
+                        // reset search from second gradient position to avoid missing the actual gradient.
+                        if (gradPosition.Count > 1 && indexToReturnToInCaseOfFail > 0)
+                        {
+							i = indexToReturnToInCaseOfFail;
+						}
 						gradPosition.Clear();
 						index = 0;
 					}
