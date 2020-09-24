@@ -69,119 +69,33 @@ namespace VMS.TPS
 
 
 
-                #region testing ground
+				#region testing ground
 
 
 
-                if (IsPlanSRT(plan))
-                {
-					var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
-					var image = plan.StructureSet.Image;
-					var imageUserOrigo = image.UserOrigin;             // mm från origo satt från CT vilket är dicom-origo!The user origin in DICOM coordinates in millimeter. 
-					var imageCTO = image.Origin;                // Ursprungligt origo satt från CT, mm från CT-origo TILL övre vänstra hörnet i första bilden!
-																//The origin of the image. In other words, the DICOM coordinates of the center point of the upper-left hand corner voxel of the first image plane
+				if (IsPlanSRT(plan))
+				{
 
-					double imageSizeX = image.XRes * image.XSize;
-					double imageSizeY = image.YRes * image.YSize;
-					double dist = VVector.Distance(imageCTO, imageUserOrigo);  // 3D distance from one koord to another, double 
-					var userIsoCoord = image.DicomToUser(planIso, plan);  //   coordinates from USER ORIGO to iso
+					int coordSRSBottom = GetSRSBottomCoord(plan);
 
-					// VVector @ image center in iso plane in dicomcoordinates   What...?
-					VVector isoPlaneImageCenter = planIso;
-
-
-
-
-					double xLeftUpperCorner = image.Origin.x - image.XRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
-					double yLeftUpperCorner = image.Origin.y - image.YRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
-
-
-					// instead of absolute image center => coord of first and last image voxel in x and y, XSize in voxels and XRes in mm/voxel
-					// this seems like a smart idea if I can understand it...
-					double xVoxStart = image.Origin.x;
-					double xVoxEnd = image.Origin.x + image.XRes * image.XSize - image.XRes;
-					double yVoxStart = image.Origin.y;
-					double yVoxEnd = image.Origin.y + image.YRes * image.YSize - image.YRes;
-
-
-
-					//**********  Image profile, need to define startpoint(VVector), endpoint(VVector) and number of samples (double[]) in that distance *********** 
-
-
-					//In case of SBRT we want to get a profile in User origo plane, middle of the image in x-direction and starting from bottom of the image in y.
-
-
-					VVector bottomProfileStart = image.UserOrigin;              // only to get the z-coord of the user origo, x and y coord will be reassigned
-					bottomProfileStart.x = xLeftUpperCorner + imageSizeX / 2;           // center of the image in x-direction
-					bottomProfileStart.y = yLeftUpperCorner + imageSizeY - image.YRes;  // start 1 pixel in from bottom...
-					double steps = plan.StructureSet.Image.YRes;                //   (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
-
-					VVector bottomProfileEnd = bottomProfileStart;
-					bottomProfileEnd.y -= 200 * steps;                  // endpoint 200 steps in -y direction, i.e. 20 cm if 1 mm pixels
-
-					var samplesY = (int)Math.Ceiling((bottomProfileStart - bottomProfileEnd).Length / steps);
-					var profY = image.GetImageProfile(bottomProfileStart, bottomProfileEnd, new double[samplesY]);
-
-					/*
-								MessageBox.Show("Plan iso: " + planIso.x.ToString("0.0") + "\t" + planIso.y.ToString("0.0") + "\n" +
-								"User Origo: " + imageUserOrigo.x.ToString("0.0")  + "\t" + imageUserOrigo.y.ToString("0.0")  + "\n" +
-								"CT origo: " + imageCTO.x.ToString("0.0") + "\t" + imageCTO.y.ToString("0.0")  +  "\n" +
-								"image size x mm :" + imageSizeX + "\t" + "y: " + imageSizeY + "\n" +
-								"DicToUserIso: " + userIsoCoord.x.ToString("0.00") +  "\t" + userIsoCoord.y.ToString("0.00") +  "\n" +
-								userIsoCoord.y.ToString("0.00") +  "\n" +
-								//isoPlaneImageCenter.y
-								//profY[1].Position.x +  "\n" +
-								//profY[1].Value.ToString("0.00") +  "\n" +					// seems to give value directly in HU
-								//image.VoxelToDisplayValue(Convert.ToInt32(profY[1].Value)) +  "\n" +
-								"Number of samples\t" + samplesY + "\n" +
-								//"PlaneImageCenter\t" + isoPlaneImageCenter.y + "\n" +
-								image.XDirection.y);
-					*/
-
-					//var imageRes = new double[] {image.XRes,image.YRes,image.ZRes};		// voxel size in mm
-					//var imageVoxSize = new int[] {image.XSize, Image.YSize, Image.ZSize};		// image size in voxels
-
-
-					//***********  Gradient patter describing expected profile in HU of the sbrt-box bottom **********
-
-					PatternGradient sbrt = new PatternGradient();
-					//sbrt.DistanceInMm = new List<double>() { 0, 4.4, 12.3, 4.4 };        // distance between gradients, mean values from profiling 10 pat 
-					//sbrt.GradientHUPerMm = new List<int>() { 100, -100, 100, -100 };
-					sbrt.DistanceInMm = new List<double>() { 0, 4.4, 12.3};        // distance between gradients, mean values from profiling 10 pat
-					sbrt.GradientHUPerMm = new List<int>() { 100, -100, 100};       // , changed to only 3 gradients, inner shell can be separated from the box
-					sbrt.PositionToleranceMm = 2;                        // tolerance for the gradient position
-					sbrt.gradIndexForCoord = 2;                      // index of gradient position to return (zero based index)
-
-
-
-					// Imageprofile gets a VVector back, take the coordinates and respective HU and put them in two Lists of double, might be better ways of doing this...
-					List<double> valHU = new List<double>();
-					List<double> coo = new List<double>();
-					string debug1 = "";
-					for (int i = 0; i < samplesY; i++)
+					if (coordSRSBottom == 0)
 					{
-						valHU.Add(profY[i].Value);
-						coo.Add(profY[i].Position.y);
-						debug1 += coo[i].ToString("0.0") + "\t" + valHU[i].ToString("0.0") + "\n";
+						MessageBox.Show("could not find the box bottom " + coordSRSBottom);
 					}
-					//MessageBox.Show(debug1);
 
-					// Get the coordinate (dicom) that represents inner bottom of laxbox (-2 in box-coordinates)
-					double coordBoxBottom = getCoordinates(coo, valHU, sbrt.GradientHUPerMm, sbrt.DistanceInMm, sbrt.PositionToleranceMm, sbrt.gradIndexForCoord);
-					// in Boxcoordinates this is equal to -2 in ant-post, can then check the coordinates for user origo in y which should be 95 (in SRS coord) by adding -97 to found coordinate
 
-					if (coordBoxBottom != 0)
+					if (coordSRSBottom != 0)
 					{
 						MessageBox.Show("hittat bottom");
 						// ************************************ get profiles in x direction, left and right side and determine center of box ********************
-
-						// TODO VERIFY that the positions seems be reasonable by comparing with the expected width of the box
-
+						// TODO VERIFY that the positions seems to be reasonable by comparing with the expected width of the box
+						var image = plan.StructureSet.Image;
+						double xLeftUpperCorner = image.Origin.x - image.XRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
 						VVector leftProfileStart = image.UserOrigin;                // only to get the z-coord of the user origo, x and y coord will be reassigned
 						VVector rightProfileStart = image.UserOrigin;               // only to get the z-coord of the user origo, x and y coord will be reassigned
 						leftProfileStart.x = xLeftUpperCorner + image.XRes;         // start 1 pixel in left side
 						rightProfileStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;         // start 1 pixel in right side
-						leftProfileStart.y = coordBoxBottom - 93.5;                 // hopefully between fidusles...
+						leftProfileStart.y = coordSRSBottom - 93.5;                 // hopefully between fidusles...
 						rightProfileStart.y = leftProfileStart.y;
 						double stepsX = image.XRes;             //   (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
 
@@ -237,8 +151,11 @@ namespace VMS.TPS
 
 						double coordBoxLeft = getCoordinates(cooLeft, valHULeft, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.gradIndexForCoord);
 						double coordBoxRight = getCoordinates(cooRight, valHURight, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.gradIndexForCoord);
+						double[] coordSRSLat = new double[2];
 
-						//MessageBox.Show(coordBoxLeft.ToString("0.0") + "\t" + coordBoxRight.ToString("0.0") + "\n" + ((coordBoxRight+coordBoxLeft)/2).ToString("0.0") );
+						coordSRSLat = GetSRSLatCoord(plan, coordSRSBottom);
+
+						MessageBox.Show(coordSRSLat[0].ToString("0.0") + "\t" + coordSRSLat[1].ToString("0.0") + "\n" + ((coordSRSLat[1] + coordSRSLat[0]) /2).ToString("0.0") );
 
 
 
@@ -252,7 +169,7 @@ namespace VMS.TPS
 																					  //VVector rightFidusStart = image.UserOrigin;               // only to get the z-coord of the user origo, x and y coord will be reassigned
 							leftFidusStart.x = coordBoxLeft + 3;                        // start 3 mm in from gradient found in previous step
 																						//rightFidusStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;         // start 1 pixel in right side
-							leftFidusStart.y = coordBoxBottom - 93.5;                  // hopefully between fidusles...
+							leftFidusStart.y = coordSRSBottom - 93.5;                  // hopefully between fidusles...
 																					   //rightFidusStart.y = leftProfileStart.y;
 							double stepsFidusLower = 0.5;             //   probably need sub-mm steps to get the fidusle-positions
 
@@ -287,18 +204,21 @@ namespace VMS.TPS
 
 							double fidusLong = getLongFidus(image, leftFidusStart, leftFidusUpperEnd, upperProfileDistance * 2);
 
-							int userOrigoVrtSRS = Convert.ToInt32(Math.Round(Math.Abs(image.UserOrigin.y - (coordBoxBottom - 1))));
+							int userOrigoVrtSRS = Convert.ToInt32(Math.Round(Math.Abs(image.UserOrigin.y - (coordSRSBottom - 1))));
 							int userOrigoLatSRS = Convert.ToInt32(Math.Round(-(image.UserOrigin.x - ((coordBoxRight + coordBoxLeft) / 2) - 300)));
 							int userOrigoLongSRS = numberOfFidusLeft * 100 + Convert.ToInt32(Math.Round(fidusLong));
 
 
 
 							string UserOrigoCheck = "";
+
+							UserOrigoCheck = GetUserOrigoInSRSFrame(plan);
+
 							if (coordBoxRight == 0 || coordBoxLeft == 0)
 							{
 								UserOrigoCheck = "Cannot find the SRS-frame, no automatic check of User origo possible.";
 							}
-							else if (Math.Abs(image.UserOrigin.y - (coordBoxBottom - 96)) < 3 && Math.Abs(image.UserOrigin.x - ((coordBoxRight + coordBoxLeft) / 2)) < 3)
+							else if (Math.Abs(image.UserOrigin.y - (coordSRSBottom - 96)) < 3 && Math.Abs(image.UserOrigin.x - ((coordBoxRight + coordBoxLeft) / 2)) < 3)
 							{
 								UserOrigoCheck = "Estimated position of user origin in SRS frame coordinates from image profiles: \n\n" +
 								" Lat: " + userOrigoLatSRS + "\t Vrt: " + userOrigoVrtSRS + "\t Lng: " + userOrigoLongSRS + "\t (+/- 2mm)" +
@@ -317,7 +237,7 @@ namespace VMS.TPS
 					}
 
 
-					
+
 
 
 
@@ -337,22 +257,22 @@ namespace VMS.TPS
 
 
 
-        private string CheckPlanCategory(PlanSetup plan)
-        {
+		private string CheckPlanCategory(PlanSetup plan)
+		{
 			string cResults = "";
-            if (IsPlanSRT(plan))
-            {
+			if (IsPlanSRT(plan))
+			{
 				cResults = "Running tests assuming this is a SRT plan";
-            }
+			}
 			return cResults;
-        }
+		}
 
 
 
 
-        // ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering, aning klent men bör fungera) *********
+		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering, aning klent men bör fungera) *********
 
-        public bool IsPlanSRT(PlanSetup plan)
+		public bool IsPlanSRT(PlanSetup plan)
 		{
 			bool fractionationSRT = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions > 7 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 45.0));
 
@@ -374,16 +294,16 @@ namespace VMS.TPS
 		// TODO: would be nice if coordinates instead originates from center of image (or center of couch) in Lat, and Couch top surface in Vrt (this would also mean a 
 		// chance to predict/estimate absolute couch coordinates in lat and vrt)
 		public VVector IsoPositionFromTableEnd(PlanSetup plan)
-        {
+		{
 			//var image = plan.StructureSet.Image;
 			VVector planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
-            switch (plan.TreatmentOrientation.ToString())
-            {
+			switch (plan.TreatmentOrientation.ToString())
+			{
 				case "FeetFirstSupine":
-                    {
+					{
 						planIso.x *= -1;
 						break;
-                    }
+					}
 				case "FeetFirstProne":
 					{
 						planIso.y *= -1;
@@ -396,8 +316,8 @@ namespace VMS.TPS
 						break;
 					}
 				default:
-                    break;
-            }
+					break;
+			}
 			return planIso;
 		}
 
@@ -457,8 +377,8 @@ namespace VMS.TPS
 			if (plan.ProtocolID.Length != 0)
 			{
 				int protocolFractionIndex = plan.ProtocolID.IndexOf('#'); // find the index of the symbol indicating nr of fractions
-                if (protocolFractionIndex != -1)							// if there are no fraktion specification in ID skip the test
-                {
+				if (protocolFractionIndex != -1)                            // if there are no fraktion specification in ID skip the test
+				{
 					string protocolFrNrInfo = plan.ProtocolID.Substring(protocolFractionIndex - 2, 2).Trim();       // retrieve the two characters before the #, and remove whitespaces
 					if (Int32.TryParse(protocolFrNrInfo, out fractionsInProtocol))                  // try parsing it to int and, if successful, compare to plan fractions
 					{
@@ -498,7 +418,7 @@ namespace VMS.TPS
 			return cResults + "\n";
 		}
 
-		
+
 		// ********* 	Kontroll av att bordsstruktur existerar, är av rätt typ, inte är tom och har korrekt HU 	********* 
 		// begränsningar: kollar ej positionering i förhållande till body, ej heller att den inte är kapad. Rätt bordstyp kollas enbart på namn
 		// Exact IGRT Couch, thin, medium och thick kan i princip vara korrekt beroende på lokalisation...
@@ -545,23 +465,23 @@ namespace VMS.TPS
 
 			// ugly code, but works, refactor somehow... but neccessary to check if Id is a number first and find the smallest
 
-			int smallestBeamNumber = 1000;		
+			int smallestBeamNumber = 1000;
 			int number = 1000;
 			var beamNumbersInPlan = new List<int>();
 			var beamNumbersInOtherPlans = new List<int>();
 			beamNumbersInOtherPlans = GetBeamNumbersFromOtherPlans(course, plan);
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
-				if (Int32.TryParse(beam.Id.Trim(), out number) )             
+				if (Int32.TryParse(beam.Id.Trim(), out number))
 				{
-                    if (number < smallestBeamNumber)
-                    {
+					if (number < smallestBeamNumber)
+					{
 						smallestBeamNumber = number;
-                    }
+					}
 					beamNumbersInPlan.Add(number);
 				}
 				else
-                {
+				{
 					cResult = " * Check field naming convention \t";
 					beamNumbersInPlan.Clear();
 					break;
@@ -600,7 +520,7 @@ namespace VMS.TPS
 		/// <param name="plan"></param>
 		/// <returns></returns>
 		private static List<int> GetBeamNumbersFromOtherPlans(Course course, PlanSetup plan)
-        {
+		{
 			var beamNumbers = new List<int>();
 			int number = 1000;
 			foreach (var ps in course.PlanSetups.Where(p => p.Id != plan.Id))
@@ -616,8 +536,8 @@ namespace VMS.TPS
 					}
 				}
 			}
-				return beamNumbers;
-        }
+			return beamNumbers;
+		}
 
 		// ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
 
@@ -637,13 +557,13 @@ namespace VMS.TPS
 					}
 					if (beam.Id.ToUpper().Substring(0, 2).Equals(plan.Id.ToUpper().Substring(0, 2))) // naming convention, should start with first two char in plan ID
 					{
-						if (beam.Id.ToUpper().Contains("CBCT"))	// no extra checks for cbct-setup field neccessary
+						if (beam.Id.ToUpper().Contains("CBCT")) // no extra checks for cbct-setup field neccessary
 						{
 							cResults = cResults + "OK" + "\n";
 						}
 						else
 						{
-							cResults = cResults + CheckPlanarSetupFields(beam, plan) + "\n";	// extra checks for planar setup fields
+							cResults = cResults + CheckPlanarSetupFields(beam, plan) + "\n";    // extra checks for planar setup fields
 						}
 					}
 					else
@@ -692,12 +612,12 @@ namespace VMS.TPS
 						{
 							case 180:
 								{
-                                    if (tableToRight)
-                                    {
+									if (tableToRight)
+									{
 										cResults += "OK";
 									}
-                                    else
-                                    {
+									else
+									{
 										cResults += "* Check for collision";
 									}
 									break;
@@ -765,38 +685,38 @@ namespace VMS.TPS
 
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
-					cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\n";
-					if (!beam.Technique.Id.Contains("SRS") && IsPlanSRT(plan))
-					{
-						if (countSRSRemarks < 1) { remarks = remarks + "** Change technique to SRS-" + beam.Technique.Id + "! \n"; };
-						countSRSRemarks++;
-					}
-					if (beam.EnergyModeDisplayName.Contains("FFF"))
-					{
-						remarks += CheckDoseRateFFF(beam, ref countDoseRateFFFRemarks);
-					}
-					if (beam.MLCPlanType == MLCPlanType.ArcDynamic && IsPlanSRT(plan))
-					{
-						remarks += CheckArcDynFFF(beam, ref countArcDynFFFRemarks);
-						remarks += CheckArcDynCollAngle(beam, ref countArcDynCollAngleRemarks);
-					}
-					if (beam.MLCPlanType == MLCPlanType.Static && IsPlanSRT(plan))
-					{
-						remarks += CheckMLCStaticFFF(plan, beam, ref countMLCStaticFFFRemarks);
-					}
-					// the absolute difference between CW and CCW should be less than two...
-					if (beam.GantryDirection == GantryDirection.CounterClockwise)
-					{
-						countArcCCW++;
-					}
-					if (beam.GantryDirection == GantryDirection.Clockwise)
-					{
-						countArcCW++;
-					}
-					if (countTreatFields == 1 && beam.Technique.Id.Contains("ARC"))
-					{
-						remarks += CheckArcStartStop(beam);
-					}
+				cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\n";
+				if (!beam.Technique.Id.Contains("SRS") && IsPlanSRT(plan))
+				{
+					if (countSRSRemarks < 1) { remarks = remarks + "** Change technique to SRS-" + beam.Technique.Id + "! \n"; };
+					countSRSRemarks++;
+				}
+				if (beam.EnergyModeDisplayName.Contains("FFF"))
+				{
+					remarks += CheckDoseRateFFF(beam, ref countDoseRateFFFRemarks);
+				}
+				if (beam.MLCPlanType == MLCPlanType.ArcDynamic && IsPlanSRT(plan))
+				{
+					remarks += CheckArcDynFFF(beam, ref countArcDynFFFRemarks);
+					remarks += CheckArcDynCollAngle(beam, ref countArcDynCollAngleRemarks);
+				}
+				if (beam.MLCPlanType == MLCPlanType.Static && IsPlanSRT(plan))
+				{
+					remarks += CheckMLCStaticFFF(plan, beam, ref countMLCStaticFFFRemarks);
+				}
+				// the absolute difference between CW and CCW should be less than two...
+				if (beam.GantryDirection == GantryDirection.CounterClockwise)
+				{
+					countArcCCW++;
+				}
+				if (beam.GantryDirection == GantryDirection.Clockwise)
+				{
+					countArcCW++;
+				}
+				if (countTreatFields == 1 && beam.Technique.Id.Contains("ARC"))
+				{
+					remarks += CheckArcStartStop(beam);
+				}
 			}
 			if (Math.Abs(countArcCCW - countArcCW) > 1)
 			{
@@ -877,9 +797,9 @@ namespace VMS.TPS
 		}
 
 
-// ********* 	Kontroll av kollimatorvinkel vid Dynamic Arc	*********
+		// ********* 	Kontroll av kollimatorvinkel vid Dynamic Arc	*********
 
-public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemarks)
+		public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemarks)
 		{
 			string cResults = "";
 			if (countArcDynCollAngleRemarks < 1 && beam.ControlPoints.First().CollimatorAngle > 5.0 && beam.ControlPoints.First().CollimatorAngle < 355.0)
@@ -906,7 +826,7 @@ public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemark
 
 		//*********HELPER METHODS**************
 
-		bool sameSign(double num1, double num2)
+		bool SameSign(double num1, double num2)
 		{
 			return num1 >= 0 && num2 >= 0 || num1 < 0 && num2 < 0;
 		}
@@ -918,6 +838,160 @@ public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemark
 			public int PositionToleranceMm { get; set; }
 			public int gradIndexForCoord { get; set; }
 		}
+
+
+		public string GetUserOrigoInSRSFrame(PlanSetup plan)
+		{
+			if (GetSRSBottomCoord(plan) != 0)
+			{
+				return "yep";
+			}
+			else
+			{
+				return "hrot";
+			}
+
+
+		}
+
+		private int GetSRSBottomCoord(PlanSetup plan)
+		{
+			//var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
+			var image = plan.StructureSet.Image;
+			//var imageUserOrigo = image.UserOrigin;             // mm från origo satt från CT vilket är dicom-origo!The user origin in DICOM coordinates in millimeter. 
+			//var imageCTO = image.Origin;                // Ursprungligt origo satt från CT, mm från CT-origo TILL övre vänstra hörnet i första bilden!
+			//The origin of the image. In other words, the DICOM coordinates of the center point of the upper-left hand corner voxel of the first image plane
+
+			double imageSizeX = image.XRes * image.XSize;
+			double imageSizeY = image.YRes * image.YSize;
+			//double dist = VVector.Distance(imageCTO, imageUserOrigo);  // 3D distance from one koord to another, double 
+			//var userIsoCoord = image.DicomToUser(planIso, plan);  //   coordinates from USER ORIGO to iso
+			// VVector @ image center in iso plane in dicomcoordinates   What...?
+			//VVector isoPlaneImageCenter = planIso;
+
+			double xLeftUpperCorner = image.Origin.x - image.XRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
+			double yLeftUpperCorner = image.Origin.y - image.YRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
+
+			// instead of absolute image center => coord of first and last image voxel in x and y, XSize in voxels and XRes in mm/voxel
+			// this seems like a smart idea if I can understand it...
+			/*double xVoxStart = image.Origin.x;
+			double xVoxEnd = image.Origin.x + image.XRes * image.XSize - image.XRes;
+			double yVoxStart = image.Origin.y;
+			double yVoxEnd = image.Origin.y + image.YRes * image.YSize - image.YRes;
+			*/
+			//**********  Image profile, need to define startpoint(VVector), endpoint(VVector) and number of samples (double[]) in that distance *********** 
+			//In case of SBRT we want to get a profile in User origo plane, middle of the image in x-direction and starting from bottom of the image in y.
+
+			VVector bottomProfileStart = image.UserOrigin;                      // only to get the z-coord of the user origo, x and y coord will be reassigned
+			bottomProfileStart.x = xLeftUpperCorner + imageSizeX / 2;           // center of the image in x-direction
+			bottomProfileStart.y = yLeftUpperCorner + imageSizeY - image.YRes;  // start 1 pixel in from bottom...
+			double steps = plan.StructureSet.Image.YRes;                        //  (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
+
+			VVector bottomProfileEnd = bottomProfileStart;
+			bottomProfileEnd.y -= 200 * steps;                                  // endpoint 200 steps in -y direction, i.e. 20 cm if 1 mm pixels
+
+			var samplesY = (int)Math.Ceiling((bottomProfileStart - bottomProfileEnd).Length / steps);
+			var profY = image.GetImageProfile(bottomProfileStart, bottomProfileEnd, new double[samplesY]);
+
+			//***********  Gradient patter describing expected profile in HU of the sbrt-box bottom **********
+
+			PatternGradient sbrt = new PatternGradient();
+			sbrt.DistanceInMm = new List<double>() { 0, 4.4, 12.3 };        // distance between gradients, mean values from profiling 10 pat
+			sbrt.GradientHUPerMm = new List<int>() { 100, -100, 100 };      // , changed to only 3 gradients, inner shell can be separated from the box
+			sbrt.PositionToleranceMm = 2;                                   // tolerance for the gradient position
+			sbrt.gradIndexForCoord = 2;                                     // index of gradient position to return (zero based index)
+
+			// Imageprofile gets a VVector back, take the coordinates and respective HU and put them in two Lists of double, might be better ways of doing this...
+			List<double> valHU = new List<double>();
+			List<double> coo = new List<double>();
+			string debug1 = "";
+			for (int i = 0; i < samplesY; i++)
+			{
+				valHU.Add(profY[i].Value);
+				coo.Add(profY[i].Position.y);
+				debug1 += coo[i].ToString("0.0") + "\t" + valHU[i].ToString("0.0") + "\n";
+			}
+			//MessageBox.Show(debug1);
+
+			// Get the coordinate (dicom) that represents inner bottom of laxbox (-2 in box-coordinates)
+			double coordBoxBottom = getCoordinates(coo, valHU, sbrt.GradientHUPerMm, sbrt.DistanceInMm, sbrt.PositionToleranceMm, sbrt.gradIndexForCoord);
+			// in Boxcoordinates this is equal to -2 in ant-post, can then check the coordinates for user origo in y which should be 95 (in SRS coord) by adding -97 to found coordinate
+			return (int)Math.Round(coordBoxBottom);
+		}
+
+
+		private double[] GetSRSLatCoord(PlanSetup plan, int coordSRSBottom)
+		{
+			MessageBox.Show("hittat bottom");
+			// ************************************ get profiles in x direction, left and right side and determine center of box ********************
+			// TODO VERIFY that the positions seems to be reasonable by comparing with the expected width of the box
+			var image = plan.StructureSet.Image;
+			double xLeftUpperCorner = image.Origin.x - image.XRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
+			VVector leftProfileStart = image.UserOrigin;                // only to get the z-coord of the user origo, x and y coord will be reassigned
+			VVector rightProfileStart = image.UserOrigin;               // only to get the z-coord of the user origo, x and y coord will be reassigned
+			leftProfileStart.x = xLeftUpperCorner + image.XRes;         // start 1 pixel in left side
+			rightProfileStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;         // start 1 pixel in right side
+			leftProfileStart.y = coordSRSBottom - 93.5;                 // hopefully between fidusles...
+			rightProfileStart.y = leftProfileStart.y;
+			double stepsX = image.XRes;             //   (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
+
+			VVector leftProfileEnd = leftProfileStart;
+			VVector rightProfileEnd = rightProfileStart;
+			leftProfileEnd.x += 100 * stepsX;                   // endpoint 100 steps in  direction
+			rightProfileEnd.x -= 100 * stepsX;
+
+			var samplesX = (int)Math.Ceiling((leftProfileStart - leftProfileEnd).Length / stepsX);
+
+			var profLeft = image.GetImageProfile(leftProfileStart, leftProfileEnd, new double[samplesX]);
+			var profRight = image.GetImageProfile(rightProfileStart, rightProfileEnd, new double[samplesX]);
+
+			List<double> valHULeft = new List<double>();
+			List<double> cooLeft = new List<double>();
+			string debugLeft = "";
+			for (int i = 0; i < samplesX; i++)
+			{
+				valHULeft.Add(profLeft[i].Value);
+				cooLeft.Add(profLeft[i].Position.x);
+				if (i > 0)
+				{
+					debugLeft += cooLeft[i].ToString("0.0") + "\t" + (valHULeft[i] - valHULeft[i - 1]).ToString("0.0") + "\n";
+				}
+			}
+
+
+			List<double> valHURight = new List<double>();
+			List<double> cooRight = new List<double>();
+			//string debugRight = "";
+			for (int i = 0; i < samplesX; i++)
+			{
+				valHURight.Add(profRight[i].Value);
+				cooRight.Add(profRight[i].Position.x);
+				//debugLeft += cooRight[i].ToString("0.0") + "\t" + valHURight[i].ToString("0.0") + "\n";
+			}
+
+
+
+			//MessageBox.Show(debugLeft);
+
+			//***********  Gradient patter describing expected profile in HU of the Lax-box side, from outside to inside **********
+
+			PatternGradient sbrtSide = new PatternGradient();
+			sbrtSide.DistanceInMm = new List<double>() { 0, 2, 13 };     // distance between gradients, mean values from profiling 10 pat 
+			sbrtSide.GradientHUPerMm = new List<int>() { 100, -100, 100 };
+			sbrtSide.PositionToleranceMm = 2;                        // tolerance for the gradient position
+			sbrtSide.gradIndexForCoord = 2;                      // index of gradient position to return (zero based index), i.e. the start of the inner wall
+
+			double[] coordBoxLat = new double[2];
+			coordBoxLat[0] = getCoordinates(cooLeft, valHULeft, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.gradIndexForCoord);
+			coordBoxLat[1] = getCoordinates(cooRight, valHURight, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.gradIndexForCoord);
+			//coordBoxLat[2] = ((coordBoxRight + coordBoxLeft) / 2);
+			return coordBoxLat;
+
+		}
+
+
+
+
 
 
 		/// <summary>
@@ -979,8 +1053,6 @@ public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemark
 			fid.PositionToleranceMm = 2;                        // tolerance for the gradient position, parameter to optimize depending probably of resolution of profile
 			fid.gradIndexForCoord = 0;                      // index of gradient position to return (zero based index)
 															// can use getCoordinates to get the number of fidusles? while getCoordinates != 0  add new object gradientClass and try again
-
-
 
 			findGradientResult = getCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.gradIndexForCoord);
 
@@ -1063,10 +1135,10 @@ public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemark
 					break;
 				}
 				// if gradient larger than given gradient and in the same direction
-				if (Math.Abs((valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i])) > (Math.Abs(hUPerMm[index])) && sameSign(grad[i], hUPerMm[index]))
+				if (Math.Abs((valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i])) > (Math.Abs(hUPerMm[index])) && SameSign(grad[i], hUPerMm[index]))
 				{
 					//Might not be the largest gradient in the vicinity even if conditions met, step to next and check. If steeper, take that position instead 
-					while (Math.Abs((valueHU[i + 2] - valueHU[i + 1])) > Math.Abs((valueHU[i + 1] - valueHU[i])) && sameSign((valueHU[i + 2] - valueHU[i + 1]), (valueHU[i + 1] - valueHU[i])) && i < coord.Count - 1)
+					while (Math.Abs((valueHU[i + 2] - valueHU[i + 1])) > Math.Abs((valueHU[i + 1] - valueHU[i])) && SameSign((valueHU[i + 2] - valueHU[i + 1]), (valueHU[i + 1] - valueHU[i])) && i < coord.Count - 1)
 					{
 						i++;
 					}
