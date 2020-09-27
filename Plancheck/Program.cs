@@ -12,6 +12,8 @@ using System.Windows;
 using System.Linq;
 using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
+//using System.Windows.Forms;
+//using System.Windows.Forms;
 
 
 
@@ -56,109 +58,24 @@ namespace VMS.TPS
 				CheckFieldRules(plan) +
 				CheckConsecutiveFieldNaming(course, plan);
 				//SimpleCollisionCheck(plan);
-
 				MessageBox.Show(message);
-
-
-
-
-
-
-
-
-
-				#region testing ground
-
-
 
 				if (IsPlanSRT(plan))
 				{
-					//TODO move this to method and call it for origo and isocenter
-					int coordSRSBottom = GetSRSBottomCoord(plan);
+					string checkSBRTOrigo = CheckUserOriginInSBRTFrame(plan);
+					MessageBox.Show(checkSBRTOrigo);
+					string checkSBRTiso = GetIsoCoordInSBRTFrame(plan);
+					MessageBox.Show(checkSBRTiso);
 
-					if (coordSRSBottom == 0)
-					{
-						MessageBox.Show("could not find the box bottom " + coordSRSBottom);
-					}
-
-
-					if (coordSRSBottom != 0)
-					{
-
-						var image = plan.StructureSet.Image;
-						double coordBoxLeft;// = getCoordinates(cooLeft, valHULeft, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.gradIndexForCoord);
-						double coordBoxRight;// = getCoordinates(cooRight, valHURight, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.gradIndexForCoord);
-						double[] coordSRSLat = new double[2];
-
-						coordSRSLat = GetSRSLatCoord(plan, coordSRSBottom);
-						coordBoxLeft = coordSRSLat[0];
-						coordBoxRight = coordSRSLat[1];
-
-						MessageBox.Show(coordSRSLat[0].ToString("0.0") + "\t" + coordSRSLat[1].ToString("0.0") + "\n" + ((coordSRSLat[1] + coordSRSLat[0]) /2).ToString("0.0") );
-
-
-
-
-						// ************************************ get profiles in y direction through fidusles in user origo plane, left and right side and determine long value ********************
-
-						if (coordBoxLeft != 0.0 && coordBoxRight != 0.0)
-						{
-							double coordSRSLong = GetSRSLongCoord(image, coordSRSBottom, coordBoxLeft, coordBoxRight);
-
-							int userOrigoVrtSRS = Convert.ToInt32(Math.Round(Math.Abs(image.UserOrigin.y - (coordSRSBottom - 1))));
-							int userOrigoLatSRS = Convert.ToInt32(Math.Round(-(image.UserOrigin.x - ((coordBoxRight + coordBoxLeft) / 2) - 300)));
-							int userOrigoLongSRS = Convert.ToInt32(Math.Round(coordSRSLong));
-
-
-
-							string UserOrigoCheck = "";
-
-							UserOrigoCheck = GetUserOrigoInSRSFrame(plan);
-
-							if (coordBoxRight == 0 || coordBoxLeft == 0)
-							{
-								UserOrigoCheck = "Cannot find the SRS-frame, no automatic check of User origo possible.";
-							}
-							else if (Math.Abs(image.UserOrigin.y - (coordSRSBottom - 96)) < 3 && Math.Abs(image.UserOrigin.x - ((coordBoxRight + coordBoxLeft) / 2)) < 3)
-							{
-								UserOrigoCheck = "Estimated position of user origin in SRS frame coordinates from image profiles: \n\n" +
-								" Lat: " + userOrigoLatSRS + "\t Vrt: " + userOrigoVrtSRS + "\t Lng: " + userOrigoLongSRS + "\t (+/- 2mm)" +
-								"\n\n";
-
-							}
-							else
-							{
-								UserOrigoCheck = "Check position of user origo";
-							}
-							MessageBox.Show(UserOrigoCheck);
-
-
-						}
-
-					}
-
-
-
-
-
-
-
-
-
+					//string isoCoordInSBRT = GetIsoCoordInSBRTFrame(plan);
 					// TODO check if isocenter in same plane as user origo, not neccesary though as there can be multiple isocenters (muliple plans) and there is no strict rule...
 				}
-				#endregion testing ground
-				//*********************************    "normal" checks *********************************
-
-
-
-
 			}
 		}
 
 
 
-        private string CheckPlanCategory(PlanSetup plan)
+		private string CheckPlanCategory(PlanSetup plan)
 		{
 			string cResults = "";
 			if (IsPlanSRT(plan))
@@ -222,7 +139,7 @@ namespace VMS.TPS
 			return planIso;
 		}
 
-		// overloaded method , should ceep only one of them and instead check if all beams have the same isocenter
+		// overloaded method , should keep only one of them and instead check if all beams have the same isocenter
 		public VVector IsoPositionFromTableEnd(Beam beam, string treatOrient)
 		{
 			VVector beamIso = beam.IsocenterPosition; // mm from Dicom-origo
@@ -737,25 +654,154 @@ namespace VMS.TPS
 			public List<double> DistanceInMm { get; set; }
 			public List<int> GradientHUPerMm { get; set; }
 			public int PositionToleranceMm { get; set; }
-			public int gradIndexForCoord { get; set; }
+			public int GradIndexForCoord { get; set; }
 		}
 
-
-		public string GetUserOrigoInSRSFrame(PlanSetup plan)
+		/// <summary>
+		/// 
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <returns></returns>
+		public string CheckUserOriginInSBRTFrame(PlanSetup plan)
 		{
-			if (GetSRSBottomCoord(plan) != 0)
+			string userOrigoCheck;
+			int userOrigoLongSRS = 0;
+			var image = plan.StructureSet.Image;
+			double bottom;
+			double left;				// left and right side only used to get longcoordinates
+			double right;
+
+			var coord = GetTransverseCoordInSBRTFrame(plan, image.UserOrigin);
+			left = coord[0];
+			right = coord[1];
+			bottom = coord[2];
+			double lateralCenterSBRT = (left+right)/2;
 			{
-				return "yep";
+				double coordSRSLong = GetSRSLongCoord(plan, image.UserOrigin, (int)Math.Round(bottom), left, right);
+				if (coordSRSLong != 0)
+				{
+					userOrigoLongSRS = (int)Math.Round(coordSRSLong);
+				}
+			}
+			int userOrigoVrtSRS = Convert.ToInt32(Math.Round(Math.Abs(image.UserOrigin.y - bottom)));
+			int userOrigoLatSRS = Convert.ToInt32(Math.Round(-(image.UserOrigin.x - lateralCenterSBRT - 300)));		// TODO: this works for HFS and FFS. HFP and FFP unhandled
+			
+			if (bottom == 0 || userOrigoLongSRS == 0)
+			{
+				userOrigoCheck = "Cannot find the SRS-frame, no automatic check of User origo possible.";
+			}
+			else if (Math.Abs(image.UserOrigin.y - (bottom - 95)) < 3 && Math.Abs(image.UserOrigin.x - lateralCenterSBRT) < 3)
+			{
+				userOrigoCheck = "Estimated position of user origin in SRS frame coordinates from image profiles: \n\n" +
+				" Lat: " + userOrigoLatSRS + "\t Vrt: " + userOrigoVrtSRS + "\t Lng: " + userOrigoLongSRS + "\t (+/- 2mm)" +
+				"\n\n";
 			}
 			else
 			{
-				return "hrot";
+				userOrigoCheck = "Check position of user origo";
 			}
-
-
+			return userOrigoCheck;
 		}
 
-		private int GetSRSBottomCoord(PlanSetup plan)
+
+		public string GetIsoCoordInSBRTFrame(PlanSetup plan)
+		{
+			string isoSBRTresults;
+			int isoLongSRS = 0;
+			var image = plan.StructureSet.Image;
+			double bottom;
+			double left;                // left and right side only used to get longcoordinates
+			double right;
+
+			var coord = GetTransverseCoordInSBRTFrame(plan, plan.Beams.First().IsocenterPosition);
+			left = coord[0];
+			right = coord[1];
+			bottom = coord[2];
+			double lateralCenterSBRT = (left + right) / 2;
+			{
+				double coordSRSLong = GetSRSLongCoord(plan, plan.Beams.First().IsocenterPosition, (int)Math.Round(bottom), left, right);
+				if (coordSRSLong != 0)
+				{
+					isoLongSRS = (int)Math.Round(coordSRSLong);
+				}
+			}
+			int isoVrtSBRT = Convert.ToInt32(Math.Round(Math.Abs(plan.Beams.First().IsocenterPosition.y - bottom)));
+			int isoLatSBRT = Convert.ToInt32(Math.Round(-(plan.Beams.First().IsocenterPosition.x - lateralCenterSBRT - 300)));     // TODO: this works for HFS and FFS. HFP and FFP unhandled
+
+			if (bottom == 0 || isoLongSRS == 0)
+			{
+				isoSBRTresults = "Cannot find the SRS-frame, no automatic check of isocenter possible.";
+			}
+			else
+			{
+				isoSBRTresults = "Estimated position of isocenter in SBRT frame coordinates from image profiles: \n\n" +
+				" Lat: " + isoLatSBRT + "\t Vrt: " + isoVrtSBRT + "\t Lng: " + isoLongSRS + "\t (+/- 2mm)" +
+				"\n\n";
+			}
+
+			return isoSBRTresults;
+		}
+
+
+
+
+
+
+
+
+
+		/// <summary>
+		/// Gets frame of reference in the SBRT frame by returning the dicom coordinate of the SBRT frame bottom (represents 0 in frame coordinates)
+		/// and left and right side of the frame in lateral direction, in the plane given by "dicomPosition"
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <param name="dicomPosition"></param>
+		/// <returns></returns>
+		public double[] GetTransverseCoordInSBRTFrame(PlanSetup plan, VVector dicomPosition)
+		{
+			VVector frameOfRefSBRT = dicomPosition;
+			//int[] coord = { 0, 0, 0 }; // Lat, Vrt and Lng to be stored and returned
+			frameOfRefSBRT.y = GetSBRTBottomCoord(plan, dicomPosition);    // igores the position of dicomPosition in x and y and takes only z-position, takes bottom and center of image
+			VVector frameOfRefSBRTLeft = frameOfRefSBRT;					// TODO: left and right designation depending of HFS FFS etc...
+			VVector frameOfRefSBRTRight = frameOfRefSBRT;
+			double[] returnCoo = new double[3];
+			if (frameOfRefSBRT.y == 0)
+			{
+				MessageBox.Show("Could not find the SBRT frame bottom. ");
+			}
+			else
+			{
+				var image = plan.StructureSet.Image;
+				double[] coordSRSLat = new double[2];
+				coordSRSLat = GetSRSLatCoord(plan, dicomPosition, (int)Math.Round(frameOfRefSBRT.y)); 
+				frameOfRefSBRTLeft.x = coordSRSLat[0];
+				frameOfRefSBRTRight.x = coordSRSLat[1];
+				frameOfRefSBRT.x = (frameOfRefSBRTLeft.x + frameOfRefSBRTRight.x) / 2;  // middle of the SBRT frame in Lat
+				// what are the chances that the dicom coord in x actually is 0.0? probably small but need to handle this by setting vrt to 0
+				// TODO: could perhaps use nullable ref types 
+				if (frameOfRefSBRTLeft.x == 0 || frameOfRefSBRTRight.x == 0 || Math.Abs(frameOfRefSBRTLeft.x - frameOfRefSBRTRight.x) < 43)// rough check of the found width of the SBRT frame, hardcoded magic number
+				{
+					frameOfRefSBRT.x = 0;
+					frameOfRefSBRT.y = 0;
+					MessageBox.Show("something went wrong");
+				}
+			}
+			returnCoo[0] = frameOfRefSBRTLeft.x;
+			returnCoo[1] = frameOfRefSBRTRight.x;
+			returnCoo[2] = frameOfRefSBRT.y;
+			return returnCoo;
+
+			// TODO check if isocenter in same plane as user origo, not neccesary though as there can be multiple isocenters (muliple plans) and there is no strict rule...
+		}
+
+		/// <summary>
+		/// Gets the coordinates of the bottom of the SBRT frame, given the plan and the position of interest
+		/// Takes the position in center of image in z-coord given by "dicomPosition"
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <param name="dicomPosition"></param>
+		/// <returns></returns>
+		private int GetSBRTBottomCoord(PlanSetup plan, VVector dicomPosition)
 		{
 			//var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
 			var image = plan.StructureSet.Image;
@@ -781,9 +827,9 @@ namespace VMS.TPS
 			double yVoxEnd = image.Origin.y + image.YRes * image.YSize - image.YRes;
 			*/
 			//**********  Image profile, need to define startpoint(VVector), endpoint(VVector) and number of samples (double[]) in that distance *********** 
-			//In case of SBRT we want to get a profile in User origo plane, middle of the image in x-direction and starting from bottom of the image in y.
+			//In case of SBRT we want to get a profile in User origo or isocenter plane, middle of the image in x-direction and starting from bottom of the image in y.
 
-			VVector bottomProfileStart = image.UserOrigin;                      // only to get the z-coord of the user origo, x and y coord will be reassigned
+			VVector bottomProfileStart = dicomPosition;                      // only to get the z-coord of the user origo, x and y coord will be reassigned
 			bottomProfileStart.x = xLeftUpperCorner + imageSizeX / 2;           // center of the image in x-direction
 			bottomProfileStart.y = yLeftUpperCorner + imageSizeY - image.YRes;  // start 1 pixel in from bottom...
 			double steps = plan.StructureSet.Image.YRes;                        //  (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
@@ -800,7 +846,7 @@ namespace VMS.TPS
 			sbrt.DistanceInMm = new List<double>() { 0, 4.4, 12.3 };        // distance between gradients, mean values from profiling 10 pat
 			sbrt.GradientHUPerMm = new List<int>() { 100, -100, 100 };      // , changed to only 3 gradients, inner shell can be separated from the box
 			sbrt.PositionToleranceMm = 2;                                   // tolerance for the gradient position
-			sbrt.gradIndexForCoord = 2;                                     // index of gradient position to return (zero based index)
+			sbrt.GradIndexForCoord = 2;                                     // index of gradient position to return (zero based index)
 
 			// Imageprofile gets a VVector back, take the coordinates and respective HU and put them in two Lists of double, might be better ways of doing this...
 			List<double> valHU = new List<double>();
@@ -817,25 +863,26 @@ namespace VMS.TPS
 			}
 			//MessageBox.Show(debug1);
 
-			// Get the coordinate (dicom) that represents inner bottom of laxbox (-2 in box-coordinates)
-			double coordBoxBottom = GetCoordinates(coo, valHU, sbrt.GradientHUPerMm, sbrt.DistanceInMm, sbrt.PositionToleranceMm, sbrt.gradIndexForCoord);
-			// in Boxcoordinates this is equal to -2 in ant-post, can then check the coordinates for user origo in y which should be 95 (in SRS coord) by adding -97 to found coordinate
+			// Get the coordinate (dicom) that represents inner bottom of SBRT frame 
+			double coordBoxBottom = GetCoordinates(coo, valHU, sbrt.GradientHUPerMm, sbrt.DistanceInMm, sbrt.PositionToleranceMm, sbrt.GradIndexForCoord);
+			// in the SBRT frame; VRT 0, which we are looking for, is approximately 1 mm above this gradient position, add 1 mm before returning
+			coordBoxBottom -= 1;		// TODO: this works for HFS and FFS, HFP and FFP should be handled
 			return (int)Math.Round(coordBoxBottom);
 		}
 
 
-		private double[] GetSRSLatCoord(PlanSetup plan, int coordSRSBottom)
+		private double[] GetSRSLatCoord(PlanSetup plan, VVector dicomCoord, int coordSRSBottom)
 		{
-			MessageBox.Show("hittat bottom");
+
 			// ************************************ get profiles in x direction, left and right side and determine center of box ********************
 			// TODO VERIFY that the positions seems to be reasonable by comparing with the expected width of the box
 			var image = plan.StructureSet.Image;
 			double xLeftUpperCorner = image.Origin.x - image.XRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
-			VVector leftProfileStart = image.UserOrigin;                // only to get the z-coord of the user origo, x and y coord will be reassigned
-			VVector rightProfileStart = image.UserOrigin;               // only to get the z-coord of the user origo, x and y coord will be reassigned
+			VVector leftProfileStart = dicomCoord;                // only to get the z-coord of the passed in VVector, x and y coord will be reassigned
+			VVector rightProfileStart = dicomCoord;               // only to get the z-coord of the passed in VVector, x and y coord will be reassigned
 			leftProfileStart.x = xLeftUpperCorner + image.XRes;         // start 1 pixel in left side
 			rightProfileStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;         // start 1 pixel in right side
-			leftProfileStart.y = coordSRSBottom - 93.5;                 // hopefully between fidusles...
+			leftProfileStart.y = coordSRSBottom - 91.5;                 // hopefully between fidusles...     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!******************************  Sensitive!
 			rightProfileStart.y = leftProfileStart.y;
 			double stepsX = image.XRes;             //   (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
 
@@ -883,23 +930,24 @@ namespace VMS.TPS
 			sbrtSide.DistanceInMm = new List<double>() { 0, 2, 13 };     // distance between gradients, mean values from profiling 10 pat 
 			sbrtSide.GradientHUPerMm = new List<int>() { 100, -100, 100 };
 			sbrtSide.PositionToleranceMm = 2;                        // tolerance for the gradient position
-			sbrtSide.gradIndexForCoord = 2;                      // index of gradient position to return (zero based index), i.e. the start of the inner wall
+			sbrtSide.GradIndexForCoord = 2;                      // index of gradient position to return (zero based index), i.e. the start of the inner wall
 
 			double[] coordBoxLat = new double[2];
-			coordBoxLat[0] = GetCoordinates(cooLeft, valHULeft, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.gradIndexForCoord);
-			coordBoxLat[1] = GetCoordinates(cooRight, valHURight, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.gradIndexForCoord);
+			coordBoxLat[0] = GetCoordinates(cooLeft, valHULeft, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.GradIndexForCoord);
+			coordBoxLat[1] = GetCoordinates(cooRight, valHURight, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.GradIndexForCoord);
 			//coordBoxLat[2] = ((coordBoxRight + coordBoxLeft) / 2);
 			return coordBoxLat;
 
 		}
 
-		private double GetSRSLongCoord(Image image, int coordSRSBottom, double coordBoxLeft, double coordBoxRight)
+		private double GetSRSLongCoord(PlanSetup plan, VVector dicomPosition, int coordSRSBottom, double coordBoxLeft, double coordBoxRight)
 		{
-			VVector leftFidusStart = image.UserOrigin;                // only to get the z-coord of the user origo, x and y coord will be reassigned
-			VVector rightFidusStart = image.UserOrigin;               // only to get the z-coord of the user origo, x and y coord will be reassigned
+			var image = plan.StructureSet.Image;
+			VVector leftFidusStart = dicomPosition;                // only to get the z-coord of the user origo, x and y coord will be reassigned
+			VVector rightFidusStart = dicomPosition;               // only to get the z-coord of the user origo, x and y coord will be reassigned
 			leftFidusStart.x = coordBoxLeft + 3;                        // start 3 mm in from gradient found in previous step *****************TODO Check for FFS!!!!!!!!!!!!!!!!!!!!!!!
 			rightFidusStart.x = coordBoxRight - 3;							// start 1 pixel in right side
-			leftFidusStart.y = coordSRSBottom - 93.5;                  // hopefully between fidusles...
+			leftFidusStart.y = coordSRSBottom - 91.5;                  // hopefully between fidusles...
 			rightFidusStart.y = leftFidusStart.y;
 			double stepsFidusLower = 0.5;             //   probably need sub-mm steps to get the fidusle-positions
 
@@ -925,20 +973,20 @@ namespace VMS.TPS
 			// get the max HU in the upper part of the box ( top-most fidusel ) to determine the final x-value for the profile
 			var upperLeftFid = leftFidusUpperEnd;
 			upperLeftFid.y += 20;							// profile the last 20 mm 
-			leftFidusUpperEnd.x = getMaxHUX(image, upperLeftFid, leftFidusUpperEnd, 3, samplesFidusLower);						// what is the 3 ?????????????????????????????????????
-			leftFidusStart.x = getMaxHUX(image, leftFidusStart, leftFidusLowerEnd, 2, samplesFidusLower);                       // step up 0.2 mm
+			leftFidusUpperEnd.x = GetMaxHUX(image, upperLeftFid, leftFidusUpperEnd, 3, samplesFidusLower);						// what is the 3 ?????????????????????????????????????
+			leftFidusStart.x = GetMaxHUX(image, leftFidusStart, leftFidusLowerEnd, 2, samplesFidusLower);                       // step up 0.2 mm
 			leftFidusLowerEnd.x = leftFidusStart.x;																				// Assuming the bottom part of the wall doesn't flex
 
 			var upperRightFid = rightFidusUpperEnd;
 			upperRightFid.y += 20;                           // profile the last 20 mm 
-			rightFidusUpperEnd.x = getMaxHUX(image, upperRightFid, rightFidusUpperEnd, -3, samplesFidusLower);
-			rightFidusStart.x = getMaxHUX(image, rightFidusStart, rightFidusLowerEnd, -2, samplesFidusLower);                       // step up 0.2 mm
+			rightFidusUpperEnd.x = GetMaxHUX(image, upperRightFid, rightFidusUpperEnd, -3, samplesFidusLower);
+			rightFidusStart.x = GetMaxHUX(image, rightFidusStart, rightFidusLowerEnd, -2, samplesFidusLower);                       // step up 0.2 mm
 			rightFidusLowerEnd.x = rightFidusStart.x;
 
 
-			int numberOfFidusLeft = getNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
+			int numberOfFidusLeft = GetNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
 			double fidusLongLeft = GetLongFidus(image, leftFidusStart, leftFidusUpperEnd, upperProfileDistance * 2);
-			int numberOfFidusRight = getNumberOfFidus(image, rightFidusStart, rightFidusLowerEnd, lowerProfileDistance * 2);
+			int numberOfFidusRight = GetNumberOfFidus(image, rightFidusStart, rightFidusLowerEnd, lowerProfileDistance * 2);
 			double fidusLongRight = GetLongFidus(image, rightFidusStart, rightFidusUpperEnd, upperProfileDistance * 2);
 
 			// Also need to check the long coordinate above and below (in z-dir) in case its a boundary case where the number of fidusles 
@@ -958,9 +1006,9 @@ namespace VMS.TPS
 				rightFidusLowerEnd.z += shiftZ;
 				rightFidusUpperEnd.z += shiftZ;
 
-				int nOfFidusLeft1 = getNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
+				int nOfFidusLeft1 = GetNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
 				double fidusLLeft1 = GetLongFidus(image, leftFidusStart, leftFidusUpperEnd, upperProfileDistance * 2);
-				int nOfFidusRight1 = getNumberOfFidus(image, rightFidusStart, rightFidusLowerEnd, lowerProfileDistance * 2);
+				int nOfFidusRight1 = GetNumberOfFidus(image, rightFidusStart, rightFidusLowerEnd, lowerProfileDistance * 2);
 				double fidusLRight1 = GetLongFidus(image, rightFidusStart, rightFidusUpperEnd, upperProfileDistance * 2);
 
 				leftFidusStart.z -= 2 * shiftZ;
@@ -970,15 +1018,15 @@ namespace VMS.TPS
 				rightFidusLowerEnd.z -= 2 * shiftZ;
 				rightFidusUpperEnd.z -= 2 * shiftZ;
 
-				int nOfFidusLeft2 = getNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
+				int nOfFidusLeft2 = GetNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
 				double fidusLLeft2 = GetLongFidus(image, leftFidusStart, leftFidusUpperEnd, upperProfileDistance * 2);
-				int nOfFidusRight2 = getNumberOfFidus(image, rightFidusStart, rightFidusLowerEnd, lowerProfileDistance * 2);
+				int nOfFidusRight2 = GetNumberOfFidus(image, rightFidusStart, rightFidusLowerEnd, lowerProfileDistance * 2);
 				double fidusLRight2 = GetLongFidus(image, rightFidusStart, rightFidusUpperEnd, upperProfileDistance * 2);
 
 				// TODO add check to se if 1 and 2 are resonable
 				double coordLong1 = (nOfFidusLeft1 + nOfFidusRight1) * 50 + (fidusLLeft1 + fidusLRight1) / 2;
 				double coordLong2 = (nOfFidusLeft2 + nOfFidusRight2) * 50 + (fidusLLeft2 + fidusLRight2) / 2;
-				//Check if resonable agreemnent before assigning the final long coordinate as mean value, hard coded values for uncertainty...
+				//Check if resonable agreement before assigning the final long coordinate as mean value, hard coded values for uncertainty...
                 if (Math.Abs(coordLong2 - coordLong1) > 17 && Math.Abs(coordLong2 - coordLong1) < 23)	
 				{
 					coordSRSLong = (coordLong1 + coordLong2) / 2;
@@ -1008,7 +1056,7 @@ namespace VMS.TPS
 		/// <param name="dirLengthInmm"></param>
 		/// <param name="samples"></param>
 		/// <returns></returns>
-		public static double getMaxHUX(Image image, VVector fidusStart, VVector fidusEnd, double dirLengthInmm, int samples )
+		public static double GetMaxHUX(Image image, VVector fidusStart, VVector fidusEnd, double dirLengthInmm, int samples )
 		{
 			double newMax = 0.0;
 			List<double> HUTemp = new List<double>();
@@ -1039,7 +1087,7 @@ namespace VMS.TPS
 
 
 
-		public int getNumberOfFidus(Image image, VVector fidusStart, VVector fidusEnd, int samples)
+		public int GetNumberOfFidus(Image image, VVector fidusStart, VVector fidusEnd, int samples)
 		{
 			List<double> valHU = new List<double>();
 			List<double> coord = new List<double>();
@@ -1056,10 +1104,10 @@ namespace VMS.TPS
 			fid.DistanceInMm = new List<double>() { 0, 2 };        // distance between gradients
 			fid.GradientHUPerMm = new List<int>() { 100, -100 };    // smallest number of fidusles is one?  
 			fid.PositionToleranceMm = 2;                        // tolerance for the gradient position, parameter to optimize depending probably of resolution of profile
-			fid.gradIndexForCoord = 0;                      // index of gradient position to return, in this case used only as a counter
+			fid.GradIndexForCoord = 0;                      // index of gradient position to return, in this case used only as a counter
 															
 
-			findGradientResult = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.gradIndexForCoord);
+			findGradientResult = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			// keep adding gradient pattern until no more fidusles found
             while (findGradientResult != 0.0)
             {
@@ -1067,11 +1115,11 @@ namespace VMS.TPS
 				fid.GradientHUPerMm.Add(100);
 				fid.DistanceInMm.Add(2);
 				fid.GradientHUPerMm.Add(-100);
-				fid.gradIndexForCoord++;
-				findGradientResult = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.gradIndexForCoord);
+				fid.GradIndexForCoord++;
+				findGradientResult = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			}
 
-			return fid.gradIndexForCoord;
+			return fid.GradIndexForCoord;
 		}
 
 
@@ -1093,19 +1141,19 @@ namespace VMS.TPS
 			fid.DistanceInMm = new List<double>() { 0, 2 , 49, 51 , 99, 101 };//};        // distance between gradients
 			fid.GradientHUPerMm = new List<int>() { 100, -100 , 100, -100 , 100, -100 };//};    // 
 			fid.PositionToleranceMm = 105;                        // tolerance for the gradient position, in this case the maximum distance is 105 mm
-			fid.gradIndexForCoord = 0;                      // index of gradient position to return (zero based index)
+			fid.GradIndexForCoord = 0;                      // index of gradient position to return (zero based index)
 
 			// Finding position of the gradient start is not enough since the long fidusle is diagonal and also changes width depending of the resolution of the image in z-dir, 
 			// have to take the mean position before and after.
-			double findFirstFidusStart = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.gradIndexForCoord);
-			fid.gradIndexForCoord = 1;
-			double findFirstFidusEnd = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.gradIndexForCoord);
+			double findFirstFidusStart = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
+			fid.GradIndexForCoord = 1;
+			double findFirstFidusEnd = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			findFirstFidus = (findFirstFidusStart + findFirstFidusEnd) / 2;
 			//Find position of second fidus (diagonal)
-			fid.gradIndexForCoord = 2;
-			double findSecondFidusStart = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.gradIndexForCoord);
-			fid.gradIndexForCoord = 3;
-			double findSecondFidusEnd = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.gradIndexForCoord);
+			fid.GradIndexForCoord = 2;
+			double findSecondFidusStart = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
+			fid.GradIndexForCoord = 3;
+			double findSecondFidusEnd = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			findSecondFidus = (findSecondFidusStart + findSecondFidusEnd) / 2;
 
 			return Math.Abs(findSecondFidus-findFirstFidus);
@@ -1217,6 +1265,7 @@ namespace VMS.TPS
 			else
 			{
 				return 0.0;
+				//MessageBox.Show("nope");
 			}
 		} // end method GetCoordinates
 
