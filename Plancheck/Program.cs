@@ -12,6 +12,8 @@ using System.Windows;
 using System.Linq;
 using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
+
+
 //using System.Windows.Forms;
 //using System.Windows.Forms;
 
@@ -589,7 +591,7 @@ namespace VMS.TPS
 		}
 
 		// ********* 	Kontroll av energi vid Statisk MLC och SRT	*********
-		// TODO: refactor this...
+
 		public string CheckMLCStaticFFF(PlanSetup plan, Beam beam, ref int countMLCStaticFFFRemarks)
 		{
 			string cResults = "";
@@ -653,7 +655,7 @@ namespace VMS.TPS
 		{
 			public List<double> DistanceInMm { get; set; }
 			public List<int> GradientHUPerMm { get; set; }
-			public int PositionToleranceMm { get; set; }
+			public List<int> PositionToleranceMm { get; set; }
 			public int GradIndexForCoord { get; set; }
 		}
 
@@ -728,19 +730,24 @@ namespace VMS.TPS
 			int isoVrtSBRT = Convert.ToInt32(Math.Round(Math.Abs(plan.Beams.First().IsocenterPosition.y - bottom)));
 			int isoLatSBRT = Convert.ToInt32(Math.Round(-(plan.Beams.First().IsocenterPosition.x - lateralCenterSBRT - 300)));     // TODO: this works for HFS and FFS. HFP and FFP unhandled
 
+			// Get Vrt and Lat calculated directly from user origo for comparison
+			int isoVrtSBRTFromUO = (int)(Math.Round(Math.Abs(plan.Beams.First().IsocenterPosition.y - image.UserOrigin.y - 95)));
+			int isoLatSBRTFromUO = (int)(Math.Round(-(plan.Beams.First().IsocenterPosition.x - image.UserOrigin.x - 300)));
+
 			if (bottom == 0 || isoLongSRS == 0)
 			{
-				isoSBRTresults = "Cannot find the SRS-frame, no automatic check of isocenter possible.";
+				isoSBRTresults = "Cannot find the SBRT frame, no automatic check of isocenter possible. Lateral and vertical calculated from user origo in paranthesis, assuming user origo correctly positioned in Lat 300 and Vrt 95: \n\n" +
+									"\n (Lat: " + isoLatSBRTFromUO + ")\t (Vrt: " + isoVrtSBRTFromUO + ")";
 			}
 			else
 			{
-				isoSBRTresults = "Estimated position of isocenter in SBRT frame coordinates from image profiles: \n\n" +
-				" Lat: " + isoLatSBRT + "\t Vrt: " + isoVrtSBRT + "\t Lng: " + isoLongSRS + "\t (+/- 2mm)" +
-				"\n\n";
+				isoSBRTresults = "Estimated position of isocenter in SBRT frame coordinates from image profiles (calculated from user origo in paranthesis): \n\n" +
+				" Lat: " + isoLatSBRT + "\t Vrt: " + isoVrtSBRT + "\t Lng: " + isoLongSRS + "\t (+/- 3mm)" +
+				"\n (Lat: " + isoLatSBRTFromUO + ")\t (Vrt: " + isoVrtSBRTFromUO + ")";
 			}
-
 			return isoSBRTresults;
 		}
+
 
 
 
@@ -771,7 +778,25 @@ namespace VMS.TPS
 			}
 			else
 			{
+
 				var image = plan.StructureSet.Image;
+				
+				
+				
+				// debug *************************************************************************************************
+
+				int userOrigoVrtSRS = Convert.ToInt32(Math.Round(Math.Abs(image.UserOrigin.y - frameOfRefSBRT.y)));
+
+				MessageBox.Show("Found SBRT bottom  " + userOrigoVrtSRS);
+
+
+
+
+
+
+
+
+				
 				double[] coordSRSLat = new double[2];
 				coordSRSLat = GetSRSLatCoord(plan, dicomPosition, (int)Math.Round(frameOfRefSBRT.y)); 
 				frameOfRefSBRTLeft.x = coordSRSLat[0];
@@ -841,12 +866,23 @@ namespace VMS.TPS
 			var profY = image.GetImageProfile(bottomProfileStart, bottomProfileEnd, new double[samplesY]);
 
 			//***********  Gradient patter describing expected profile in HU of the sbrt-box bottom **********
+			/*
+			PatternGradient sbrt = new PatternGradient();
+			sbrt.DistanceInMm = new List<double>() { 0, 4.4, 12.3 };//, 2 };        // distance between gradients, mean values from profiling 10 pat
+			sbrt.GradientHUPerMm = new List<int>() { 100, -100, 100 };//, -100 };      // ,  inner shell can be separated from the box, larger tolerance
+			sbrt.PositionToleranceMm = new List<int>() { 0, 2, 2 };//, 3 };                                   // tolerance for the gradient position
+			sbrt.GradIndexForCoord = 2;   
+			*/// index of gradient position to return (zero based index)
 
 			PatternGradient sbrt = new PatternGradient();
-			sbrt.DistanceInMm = new List<double>() { 0, 4.4, 12.3 };        // distance between gradients, mean values from profiling 10 pat
-			sbrt.GradientHUPerMm = new List<int>() { 100, -100, 100 };      // , changed to only 3 gradients, inner shell can be separated from the box
-			sbrt.PositionToleranceMm = 2;                                   // tolerance for the gradient position
+			sbrt.DistanceInMm = new List<double>() { 0, 4.4, 12.3, 2 };        // distance between gradients, mean values from profiling 10 pat
+			sbrt.GradientHUPerMm = new List<int>() { 90, -90, 90, -90 };      // ,  inner shell can be separated from the box, larger tolerance
+			sbrt.PositionToleranceMm = new List<int>() { 0, 2, 1, 3 };        // tolerance for the gradient position, needs to be tight as some ct couch tops have almost the same dimensions
 			sbrt.GradIndexForCoord = 2;                                     // index of gradient position to return (zero based index)
+
+
+
+
 
 			// Imageprofile gets a VVector back, take the coordinates and respective HU and put them in two Lists of double, might be better ways of doing this...
 			List<double> valHU = new List<double>();
@@ -865,8 +901,12 @@ namespace VMS.TPS
 
 			// Get the coordinate (dicom) that represents inner bottom of SBRT frame 
 			double coordBoxBottom = GetCoordinates(coo, valHU, sbrt.GradientHUPerMm, sbrt.DistanceInMm, sbrt.PositionToleranceMm, sbrt.GradIndexForCoord);
-			// in the SBRT frame; VRT 0, which we are looking for, is approximately 1 mm above this gradient position, add 1 mm before returning
-			coordBoxBottom -= 1;		// TODO: this works for HFS and FFS, HFP and FFP should be handled
+            // in the SBRT frame; VRT 0, which we are looking for, is approximately 1 mm above this gradient position, add 1 mm before returning
+            if (coordBoxBottom != 0)
+            {
+				coordBoxBottom -= 1;        // TODO: this works for HFS and FFS, HFP and FFP should be handled
+			}
+			
 			return (int)Math.Round(coordBoxBottom);
 		}
 
@@ -929,13 +969,18 @@ namespace VMS.TPS
 			PatternGradient sbrtSide = new PatternGradient();
 			sbrtSide.DistanceInMm = new List<double>() { 0, 2, 13 };     // distance between gradients, mean values from profiling 10 pat 
 			sbrtSide.GradientHUPerMm = new List<int>() { 100, -100, 100 };
-			sbrtSide.PositionToleranceMm = 2;                        // tolerance for the gradient position
+			sbrtSide.PositionToleranceMm = new List<int>() { 0, 4, 4 };                        // tolerance for the gradient position
 			sbrtSide.GradIndexForCoord = 2;                      // index of gradient position to return (zero based index), i.e. the start of the inner wall
 
 			double[] coordBoxLat = new double[2];
 			coordBoxLat[0] = GetCoordinates(cooLeft, valHULeft, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.GradIndexForCoord);
 			coordBoxLat[1] = GetCoordinates(cooRight, valHURight, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.GradIndexForCoord);
-			//coordBoxLat[2] = ((coordBoxRight + coordBoxLeft) / 2);
+            //coordBoxLat[2] = ((coordBoxRight + coordBoxLeft) / 2);
+            if (coordBoxLat[0] !=0 && coordBoxLat[0] != 0)
+            {
+
+				MessageBox.Show("found sides");
+			}
 			return coordBoxLat;
 
 		}
@@ -945,8 +990,8 @@ namespace VMS.TPS
 			var image = plan.StructureSet.Image;
 			VVector leftFidusStart = dicomPosition;                // only to get the z-coord of the user origo, x and y coord will be reassigned
 			VVector rightFidusStart = dicomPosition;               // only to get the z-coord of the user origo, x and y coord will be reassigned
-			leftFidusStart.x = coordBoxLeft + 3;                        // start 3 mm in from gradient found in previous step *****************TODO Check for FFS!!!!!!!!!!!!!!!!!!!!!!!
-			rightFidusStart.x = coordBoxRight - 3;							// start 1 pixel in right side
+			leftFidusStart.x = coordBoxLeft + 1;                        // start 3 mm in from gradient found in previous step *****************TODO Check for FFS!!!!!!!!!!!!!!!!!!!!!!!
+			rightFidusStart.x = coordBoxRight - 1;							// start 1 pixel in right side
 			leftFidusStart.y = coordSRSBottom - 91.5;                  // hopefully between fidusles...
 			rightFidusStart.y = leftFidusStart.y;
 			double stepsFidusLower = 0.5;             //   probably need sub-mm steps to get the fidusle-positions
@@ -967,20 +1012,19 @@ namespace VMS.TPS
 			var samplesFidusUpper = (int)Math.Ceiling((leftFidusStart - leftFidusUpperEnd).Length);
 			var samplesFidusLower = (int)Math.Ceiling((leftFidusStart - leftFidusLowerEnd).Length / stepsFidusLower);
 
-			var profLeftUpperFidus = image.GetImageProfile(leftFidusStart, leftFidusUpperEnd, new double[samplesFidusUpper]);
 
 			// Since the SRS-box walls flexes, the x-coordinate for upper profile may differ from start to end
 			// get the max HU in the upper part of the box ( top-most fidusel ) to determine the final x-value for the profile
 			var upperLeftFid = leftFidusUpperEnd;
-			upperLeftFid.y += 20;							// profile the last 20 mm 
-			leftFidusUpperEnd.x = GetMaxHUX(image, upperLeftFid, leftFidusUpperEnd, 3, samplesFidusLower);						// what is the 3 ?????????????????????????????????????
-			leftFidusStart.x = GetMaxHUX(image, leftFidusStart, leftFidusLowerEnd, 2, samplesFidusLower);                       // step up 0.2 mm
+			upperLeftFid.y += 15;							// profile the last 30 mm 
+			leftFidusUpperEnd.x = GetMaxHUX(image, upperLeftFid, leftFidusUpperEnd, 6, samplesFidusLower);						// what is the 3 ?????????????????????????????????????
+			leftFidusStart.x = GetMaxHUX(image, leftFidusStart, leftFidusLowerEnd, 4, samplesFidusLower);                       // step up 0.2 mm
 			leftFidusLowerEnd.x = leftFidusStart.x;																				// Assuming the bottom part of the wall doesn't flex
 
 			var upperRightFid = rightFidusUpperEnd;
-			upperRightFid.y += 20;                           // profile the last 20 mm 
-			rightFidusUpperEnd.x = GetMaxHUX(image, upperRightFid, rightFidusUpperEnd, -3, samplesFidusLower);
-			rightFidusStart.x = GetMaxHUX(image, rightFidusStart, rightFidusLowerEnd, -2, samplesFidusLower);                       // step up 0.2 mm
+			upperRightFid.y += 15;                           // profile the last 30 mm 
+			rightFidusUpperEnd.x = GetMaxHUX(image, upperRightFid, rightFidusUpperEnd, -6, samplesFidusLower);
+			rightFidusStart.x = GetMaxHUX(image, rightFidusStart, rightFidusLowerEnd, -4, samplesFidusLower);                       // step up 0.2 mm
 			rightFidusLowerEnd.x = rightFidusStart.x;
 
 
@@ -995,7 +1039,6 @@ namespace VMS.TPS
 			// TODO: not very DRY...
 
 			double coordSRSLong = 0;
-
 			if (numberOfFidusLeft != numberOfFidusRight || fidusLongLeft > 97 || fidusLongRight > 97 || fidusLongLeft == 0.0 || fidusLongRight ==0)
             {
 				int shiftZ = 10;
@@ -1027,10 +1070,15 @@ namespace VMS.TPS
 				double coordLong1 = (nOfFidusLeft1 + nOfFidusRight1) * 50 + (fidusLLeft1 + fidusLRight1) / 2;
 				double coordLong2 = (nOfFidusLeft2 + nOfFidusRight2) * 50 + (fidusLLeft2 + fidusLRight2) / 2;
 				//Check if resonable agreement before assigning the final long coordinate as mean value, hard coded values for uncertainty...
+				// moved 10 mm in both directions i.e. expected difference in long is 20 mm
                 if (Math.Abs(coordLong2 - coordLong1) > 17 && Math.Abs(coordLong2 - coordLong1) < 23)	
 				{
 					coordSRSLong = (coordLong1 + coordLong2) / 2;
 					MessageBox.Show("first " + coordLong1.ToString("0.0") + "\t second " + coordLong2.ToString("0.0"));
+				}
+                else
+                {
+					MessageBox.Show("Problem :first " + coordLong1.ToString("0.0") + "\t second " + coordLong2.ToString("0.0"));
 				}
 
 			}
@@ -1082,6 +1130,7 @@ namespace VMS.TPS
 				HUTemp.Clear();
 				cooTemp.Clear();
 			}
+			//MessageBox.Show("max HU: " + newMax.ToString("0.0"));
 			return finalXValue;
 		}
 
@@ -1103,22 +1152,22 @@ namespace VMS.TPS
 			var fid = new PatternGradient();
 			fid.DistanceInMm = new List<double>() { 0, 2 };        // distance between gradients
 			fid.GradientHUPerMm = new List<int>() { 100, -100 };    // smallest number of fidusles is one?  
-			fid.PositionToleranceMm = 2;                        // tolerance for the gradient position, parameter to optimize depending probably of resolution of profile
-			fid.GradIndexForCoord = 0;                      // index of gradient position to return, in this case used only as a counter
+			fid.PositionToleranceMm = new List<int>() { 0, 2 };                         // tolerance for the gradient position, parameter to optimize depending probably of resolution of profile
+			fid.GradIndexForCoord = 0;                      // index of gradient position to return, in this case used only as a counter of number of fidusles
 															
-
 			findGradientResult = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			// keep adding gradient pattern until no more fidusles found
             while (findGradientResult != 0.0)
             {
 				fid.DistanceInMm.Add(3);
 				fid.GradientHUPerMm.Add(100);
+				fid.PositionToleranceMm.Add(2);
 				fid.DistanceInMm.Add(2);
 				fid.GradientHUPerMm.Add(-100);
+				fid.PositionToleranceMm.Add(2);
 				fid.GradIndexForCoord++;
 				findGradientResult = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			}
-
 			return fid.GradIndexForCoord;
 		}
 
@@ -1138,9 +1187,9 @@ namespace VMS.TPS
 				coord.Add(profFidus[i].Position.y);
 			}
 			var fid = new PatternGradient();
-			fid.DistanceInMm = new List<double>() { 0, 2 , 49, 51 , 99, 101 };//};        // distance between gradients
-			fid.GradientHUPerMm = new List<int>() { 100, -100 , 100, -100 , 100, -100 };//};    // 
-			fid.PositionToleranceMm = 105;                        // tolerance for the gradient position, in this case the maximum distance is 105 mm
+			fid.DistanceInMm = new List<double>() { 0, 2 , 49, 2 , 99, 2 };//};        // distance between gradients
+			fid.GradientHUPerMm = new List<int>() { 100, -100 , 70, -70 , 100, -100 };//};    // diagonal fidusle have flacker gradient
+			fid.PositionToleranceMm = new List<int>() { 2, 3, 105, 4, 105, 3};                        // tolerance for the gradient position, in this case the maximum distance is approx 105 mm
 			fid.GradIndexForCoord = 0;                      // index of gradient position to return (zero based index)
 
 			// Finding position of the gradient start is not enough since the long fidusle is diagonal and also changes width depending of the resolution of the image in z-dir, 
@@ -1169,9 +1218,9 @@ namespace VMS.TPS
 		/// <param name="distMm"> Distance in mm to the next gradient</param>
 		/// <param name="posTolMm"> Tolerance of position of found gradient in mm</param>
 		/// <returns></returns>
-		public double GetCoordinates(List<double> coord, List<double> valueHU, List<int> hUPerMm, List<double> distMm, int posTolMm, int indexToReturn)
+		public double GetCoordinates(List<double> coord, List<double> valueHU, List<int> hUPerMm, List<double> distMm, List<int> posTolMm, int indexToReturn)
 		{
-			//string debug = "";
+			string debug = "";
 			double[] grad = new double[coord.Count - 1];
 			double[] pos = new double[coord.Count - 1];
 			int index = 0;
@@ -1185,6 +1234,8 @@ namespace VMS.TPS
 				pos[i] = (coord[i] + coord[i + 1]) / 2;
 				grad[i] = (valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i]);
 			}
+
+
 
 			List<double> gradPosition = new List<double>();
 			int indexToReturnToInCaseOfFail = 0;
@@ -1212,7 +1263,7 @@ namespace VMS.TPS
 						gradientEnd = pos[i];
                         if (index == 0)
                         {
-							indexToReturnToInCaseOfFail = i + 1; // if the search fails, i.e. can not find next gradient within distance, return to position directly after first gradient ends
+							indexToReturnToInCaseOfFail = i + 1; // if the search fails, i.e. can not find next gradient within the distance given, return to position directly after first gradient ends
                         }
 					}
 					gradientMiddle = (gradientStart + gradientEnd) / 2;
@@ -1220,23 +1271,25 @@ namespace VMS.TPS
 					{
 						//gradPosition.Add(pos[i]);
 						gradPosition.Add(gradientMiddle);
+
 						index++;
 					}
 					// if gradient found before expected position (outside tolerance), keep looking
-					else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) < (distMm[index] - posTolMm)) && i < pos.Count()-2)
+					else if (Math.Abs(gradientMiddle - gradPosition[index - 1]) < distMm[index] - posTolMm[index] && i < pos.Count()-2)
 					{
-						//debug += pos[i].ToString("0.0") + "\t" + (gradPosition[index] - gradPosition[index - 1]).ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
 						i++;
+						//MessageBox.Show(Math.Abs(gradientMiddle - gradPosition[index - 1]).ToString("0.0"));
 					}
 					// if next gradient not found within tolerance distance, means that the first gradient is probably wrong, reset index
-					else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) > (distMm[index] + posTolMm)))
+					else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) > (Math.Abs(distMm[index]) + posTolMm[index])))
 					{
+						debug += "Fail " + (Math.Abs(gradientMiddle - gradPosition[index - 1])).ToString("0.0") + "\t" + (distMm[index] + posTolMm[index]).ToString("0.0") + "\n";
 						gradPosition.Clear();
 						index = 0;
 						i = indexToReturnToInCaseOfFail;
 					}
 					//  compare the distance between the gradients to the criteria given, step up index and continue if within tolerance
-					else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) > (distMm[index] - posTolMm)) && (Math.Abs(gradientMiddle - gradPosition[index - 1]) < (distMm[index] + posTolMm))) 
+					else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) > (distMm[index] - posTolMm[index])) && (Math.Abs(gradientMiddle - gradPosition[index - 1]) < (distMm[index] + posTolMm[index]))) 
 					{
 						//debug += pos[i].ToString("0.0") + "\t" + (gradPosition[index] - gradPosition[index - 1]).ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
 						gradPosition.Add(gradientMiddle);
@@ -1260,12 +1313,27 @@ namespace VMS.TPS
 			}
 			if (index == hUPerMm.Count())
 			{
+
+                //debug ***********************
+               if (distMm[1] == 4.4)
+                {
+					MessageBox.Show("Dessa grad bottom: " + Math.Abs(gradPosition[index-3] - gradPosition[index - 4]).ToString("0.0") + "\t" + Math.Abs(gradPosition[index - 2] - gradPosition[index - 3]).ToString("0.0") +
+						"\t" +Math.Abs(gradPosition[index - 1] - gradPosition[index - 2]).ToString("0.0"));
+
+				}
+
 				return gradPosition[indexToReturn];
+				
 			}
 			else
 			{
+				//debug ***********************
+				if (distMm[1] == 4.4)
+				{
+					MessageBox.Show(debug);
+				}
 				return 0.0;
-				//MessageBox.Show("nope");
+				
 			}
 		} // end method GetCoordinates
 
