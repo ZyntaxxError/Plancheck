@@ -34,6 +34,7 @@ namespace VMS.TPS
 		}
 		public void Execute(ScriptContext context)
 		{
+			
 			if (context.Patient == null || context.PlanSetup == null)
 			{
 				MessageBox.Show("Please select a patient and plan in active context window.");
@@ -731,14 +732,20 @@ namespace VMS.TPS
 			int isoLatSBRT = Convert.ToInt32(Math.Round(-(plan.Beams.First().IsocenterPosition.x - lateralCenterSBRT - 300)));     // TODO: this works for HFS and FFS. HFP and FFP unhandled
 
 			// Get Vrt and Lat calculated directly from user origo for comparison
-			int isoVrtSBRTFromUO = (int)(Math.Round(Math.Abs(plan.Beams.First().IsocenterPosition.y - image.UserOrigin.y - 95)));
-			int isoLatSBRTFromUO = (int)(Math.Round(-(plan.Beams.First().IsocenterPosition.x - image.UserOrigin.x - 300)));
+			int isoVrtSBRTFromUO = (int)(Math.Round(Math.Abs(plan.Beams.First().IsocenterPosition.y - image.UserOrigin.y - 95)));	// TODO: this works for HFS and FFS. HFP and FFP unhandled
+			int isoLatSBRTFromUO = (int)(Math.Round(-(plan.Beams.First().IsocenterPosition.x - image.UserOrigin.x - 300)));         // TODO: this works for HFS and FFS. HFP and FFP unhandled
 
-			if (bottom == 0 || isoLongSRS == 0)
+			if (bottom == 0 && isoLongSRS == 0)
 			{
-				isoSBRTresults = "Cannot find the SBRT frame, no automatic check of isocenter possible. Lateral and vertical calculated from user origo in paranthesis, assuming user origo correctly positioned in Lat 300 and Vrt 95: \n\n" +
+				isoSBRTresults = "Cannot find the SBRT frame, no automatic check of isocenter possible. Lateral and vertical calculated from user origo in paranthesis, assuming user origo is correctly positioned in Lat 300 and Vrt 95: \n\n" +
 									"\n (Lat: " + isoLatSBRTFromUO + ")\t (Vrt: " + isoVrtSBRTFromUO + ")";
 			}
+            else if (isoLongSRS == 0)
+            {
+				isoSBRTresults = "Cannot find the SBRT frame long coordinate with profiles. Estimated position of isocenter in SBRT frame coordinates in transverse direction from image profiles (calculated from user origo in paranthesis): \n\n" +
+				" Lat: " + isoLatSBRT + "\t Vrt: " + isoVrtSBRT + "\t (+/- 3mm)" +
+				"\n (Lat: " + isoLatSBRTFromUO + ")\t (Vrt: " + isoVrtSBRTFromUO + ")";
+			} 
 			else
 			{
 				isoSBRTresults = "Estimated position of isocenter in SBRT frame coordinates from image profiles (calculated from user origo in paranthesis): \n\n" +
@@ -767,34 +774,26 @@ namespace VMS.TPS
 		public double[] GetTransverseCoordInSBRTFrame(PlanSetup plan, VVector dicomPosition)
 		{
 			VVector frameOfRefSBRT = dicomPosition;
-			//int[] coord = { 0, 0, 0 }; // Lat, Vrt and Lng to be stored and returned
+
+			// get the dicom-position representing vertical coordinate 0 in the SBRT frame
 			frameOfRefSBRT.y = GetSBRTBottomCoord(plan, dicomPosition);    // igores the position of dicomPosition in x and y and takes only z-position, takes bottom and center of image
 			VVector frameOfRefSBRTLeft = frameOfRefSBRT;					// TODO: left and right designation depending of HFS FFS etc...
 			VVector frameOfRefSBRTRight = frameOfRefSBRT;
 			double[] returnCoo = new double[3];
-			if (frameOfRefSBRT.y == 0)
+			var image = plan.StructureSet.Image;
+
+			// If bottom found, dubblecheck that the frameOfRefSBRT.y really is the bottom of the SBRT-frame by taking profiles in the sloping part of the SBRT frame and comparing
+			// width with expected width at respective height above the bottom
+			if (frameOfRefSBRT.y != 0 && DoubleCheckSBRTVrt(image, frameOfRefSBRT))
 			{
-				MessageBox.Show("Could not find the SBRT frame bottom. ");
-			}
-			else
-			{
-
-				var image = plan.StructureSet.Image;
-				
-				
-				
-				// debug *************************************************************************************************
-
-				int userOrigoVrtSRS = Convert.ToInt32(Math.Round(Math.Abs(image.UserOrigin.y - frameOfRefSBRT.y)));
-
-				MessageBox.Show("Found SBRT bottom  " + userOrigoVrtSRS);
 
 
 
 
+                // debug 
 
-
-
+				//int userOrigoVrtSRS = Convert.ToInt32(Math.Round(Math.Abs(image.UserOrigin.y - frameOfRefSBRT.y)));
+				//MessageBox.Show("Found SBRT bottom  " + userOrigoVrtSRS);
 
 				
 				double[] coordSRSLat = new double[2];
@@ -802,15 +801,20 @@ namespace VMS.TPS
 				frameOfRefSBRTLeft.x = coordSRSLat[0];
 				frameOfRefSBRTRight.x = coordSRSLat[1];
 				frameOfRefSBRT.x = (frameOfRefSBRTLeft.x + frameOfRefSBRTRight.x) / 2;  // middle of the SBRT frame in Lat
-				// what are the chances that the dicom coord in x actually is 0.0? probably small but need to handle this by setting vrt to 0
-				// TODO: could perhaps use nullable ref types 
-				if (frameOfRefSBRTLeft.x == 0 || frameOfRefSBRTRight.x == 0 || Math.Abs(frameOfRefSBRTLeft.x - frameOfRefSBRTRight.x) < 43)// rough check of the found width of the SBRT frame, hardcoded magic number
+				// what are the chances that the dicom coord in x actually is 0.0? probably small but need to handle this by setting vrt to 0, TODO: could perhaps use nullable ref types 
+				// rough check of the found width of the SBRT frame, allow for some flex of the frame. hardcoded magic number... TODO: this will brake if the gradient number changes
+				if (frameOfRefSBRTLeft.x == 0 || frameOfRefSBRTRight.x == 0 || Math.Abs(frameOfRefSBRTLeft.x - frameOfRefSBRTRight.x) < 439 || Math.Abs(frameOfRefSBRTLeft.x - frameOfRefSBRTRight.x) > 445)
 				{
 					frameOfRefSBRT.x = 0;
 					frameOfRefSBRT.y = 0;
-					MessageBox.Show("something went wrong");
 				}
+				MessageBox.Show("Frame width:  " + Math.Abs(frameOfRefSBRTLeft.x - frameOfRefSBRTRight.x).ToString("0.0"));
 			}
+			else
+			{
+				MessageBox.Show("Could not find the SBRT frame bottom. ");
+			}
+
 			returnCoo[0] = frameOfRefSBRTLeft.x;
 			returnCoo[1] = frameOfRefSBRTRight.x;
 			returnCoo[2] = frameOfRefSBRT.y;
@@ -819,14 +823,84 @@ namespace VMS.TPS
 			// TODO check if isocenter in same plane as user origo, not neccesary though as there can be multiple isocenters (muliple plans) and there is no strict rule...
 		}
 
-		/// <summary>
-		/// Gets the coordinates of the bottom of the SBRT frame, given the plan and the position of interest
-		/// Takes the position in center of image in z-coord given by "dicomPosition"
-		/// </summary>
-		/// <param name="plan"></param>
-		/// <param name="dicomPosition"></param>
-		/// <returns></returns>
-		private int GetSBRTBottomCoord(PlanSetup plan, VVector dicomPosition)
+        private bool DoubleCheckSBRTVrt(Image image, VVector frameOfRefSBRT)
+        {
+			// 10 mm above the bottom the expected width of the frame is 349 mm (third gradient, i.e. the inner surface of the inner wall) Changes fast with height... approx. 140 deg angle of box, 12 mm above; 356...
+			bool checkResult = false;
+			double xLeftUpperCorner = image.Origin.x - image.XRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
+			VVector leftProfileStart = frameOfRefSBRT;                // only to get the z-coord of the passed in VVector, x and y coord will be reassigned
+			VVector rightProfileStart = frameOfRefSBRT;               // only to get the z-coord of the passed in VVector, x and y coord will be reassigned
+			leftProfileStart.x = xLeftUpperCorner + image.XRes;         // start 1 pixel in left side
+			rightProfileStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;         // start 1 pixel in right side
+			leftProfileStart.y = frameOfRefSBRT.y - 10;                 // 10 mm from assumed bottom    
+			rightProfileStart.y = leftProfileStart.y;
+			double stepsX = image.XRes;             //   (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
+
+			VVector leftProfileEnd = leftProfileStart;
+			VVector rightProfileEnd = rightProfileStart;
+			leftProfileEnd.x += 200 * stepsX;                   
+			rightProfileEnd.x -= 200 * stepsX;
+
+			var samplesX = (int)Math.Ceiling((leftProfileStart - leftProfileEnd).Length / stepsX);
+
+			var profLeft = image.GetImageProfile(leftProfileStart, leftProfileEnd, new double[samplesX]);
+			var profRight = image.GetImageProfile(rightProfileStart, rightProfileEnd, new double[samplesX]);
+
+			List<double> valHULeft = new List<double>();
+			List<double> cooLeft = new List<double>();
+			for (int i = 0; i < samplesX; i++)
+			{
+				valHULeft.Add(profLeft[i].Value);
+				cooLeft.Add(profLeft[i].Position.x);
+			}
+
+			List<double> valHURight = new List<double>();
+			List<double> cooRight = new List<double>();
+			for (int i = 0; i < samplesX; i++)
+			{
+				valHURight.Add(profRight[i].Value);
+				cooRight.Add(profRight[i].Position.x);
+			}
+
+
+			//***********  Gradient patter describing expected profile in HU of the Lax-box slanted side, from outside to inside **********
+
+			PatternGradient sbrtSide = new PatternGradient();
+			sbrtSide.DistanceInMm = new List<double>() { 0, 2, 20 };     // distance between gradients, mean values from profiling 10 pat 
+			sbrtSide.GradientHUPerMm = new List<int>() { 100, -100, 100 };
+			sbrtSide.PositionToleranceMm = new List<int>() { 0, 3, 3 };                        // tolerance for the gradient position
+			sbrtSide.GradIndexForCoord = 2;                      // index of gradient position to return (zero based index), i.e. the start of the inner wall
+
+			double[] coordBoxLat = new double[2];
+			coordBoxLat[0] = GetCoordinates(cooLeft, valHULeft, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.GradIndexForCoord);
+			coordBoxLat[1] = GetCoordinates(cooRight, valHURight, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.GradIndexForCoord);
+			//coordBoxLat[2] = ((coordBoxRight + coordBoxLeft) / 2);
+			if (coordBoxLat[0] != 0 && coordBoxLat[1] != 0 && Math.Abs(coordBoxLat[1]- coordBoxLat[0]) < 356 && Math.Abs(coordBoxLat[1] - coordBoxLat[0]) > 342)
+			{
+				MessageBox.Show("Width of slanted box side " + Math.Abs(coordBoxLat[1] - coordBoxLat[0]).ToString("0.0"));
+				checkResult = true;
+			}
+
+			return checkResult;
+        }
+
+
+
+
+
+
+
+
+
+
+        /// <summary>
+        /// Gets the coordinates of the bottom of the SBRT frame, given the plan and the position of interest
+        /// Takes the position in center of image in z-coord given by "dicomPosition"
+        /// </summary>
+        /// <param name="plan"></param>
+        /// <param name="dicomPosition"></param>
+        /// <returns></returns>
+        private int GetSBRTBottomCoord(PlanSetup plan, VVector dicomPosition)
 		{
 			//var planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
 			var image = plan.StructureSet.Image;
@@ -915,14 +989,14 @@ namespace VMS.TPS
 		{
 
 			// ************************************ get profiles in x direction, left and right side and determine center of box ********************
-			// TODO VERIFY that the positions seems to be reasonable by comparing with the expected width of the box
+
 			var image = plan.StructureSet.Image;
 			double xLeftUpperCorner = image.Origin.x - image.XRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
 			VVector leftProfileStart = dicomCoord;                // only to get the z-coord of the passed in VVector, x and y coord will be reassigned
 			VVector rightProfileStart = dicomCoord;               // only to get the z-coord of the passed in VVector, x and y coord will be reassigned
 			leftProfileStart.x = xLeftUpperCorner + image.XRes;         // start 1 pixel in left side
 			rightProfileStart.x = xLeftUpperCorner + image.XSize * image.XRes - image.XRes;         // start 1 pixel in right side
-			leftProfileStart.y = coordSRSBottom - 91.5;                 // hopefully between fidusles...     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!******************************  Sensitive!
+			leftProfileStart.y = coordSRSBottom - 91.5;                 // hopefully between fidusles...     
 			rightProfileStart.y = leftProfileStart.y;
 			double stepsX = image.XRes;             //   (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
 
@@ -976,7 +1050,7 @@ namespace VMS.TPS
 			coordBoxLat[0] = GetCoordinates(cooLeft, valHULeft, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.GradIndexForCoord);
 			coordBoxLat[1] = GetCoordinates(cooRight, valHURight, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.GradIndexForCoord);
             //coordBoxLat[2] = ((coordBoxRight + coordBoxLeft) / 2);
-            if (coordBoxLat[0] !=0 && coordBoxLat[0] != 0)
+            if (coordBoxLat[0] !=0 && coordBoxLat[1] != 0)
             {
 
 				MessageBox.Show("found sides");
