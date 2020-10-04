@@ -12,6 +12,8 @@ using System.Windows;
 using System.Linq;
 using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
+using System.IO;
+using System.Diagnostics;
 
 
 //using System.Windows.Forms;
@@ -22,6 +24,7 @@ using VMS.TPS.Common.Model.Types;
 /* TODO: create plan category (enum) and make category specific checks for tbi, sbrt, electron, etc
  * TODO: IsPlanSRT fails if a revision made...
  * TODO Plan sum; foreach plan: check, easier to do in build and wpf...
+ * TODO: only the person that created this plan can run the SBRT- script... or the creator can not run it
  * 
  * */
 
@@ -656,6 +659,7 @@ namespace VMS.TPS
 		{
 			public List<double> DistanceInMm { get; set; }
 			public List<int> GradientHUPerMm { get; set; }
+			public List<double> MinGradientLength { get; set; }
 			public List<int> PositionToleranceMm { get; set; }
 			public int GradIndexForCoord { get; set; }
 		}
@@ -731,7 +735,7 @@ namespace VMS.TPS
 			int userOrigoLatSRS = Convert.ToInt32(Math.Round(-(image.UserOrigin.x - lateralCenterSBRT - 300)));		// TODO: this works for HFS and FFS. HFP and FFP unhandled
 			
 
-			//TODO change divide this by bottom not found and long not found
+
 			if (bottom == 0)
 			{
 				userOrigoCheck = "Cannot find the SRS-frame, no automatic check of User origo possible.";
@@ -1107,109 +1111,168 @@ namespace VMS.TPS
 
 		private double GetSRSLongCoord(PlanSetup plan, VVector dicomPosition, int coordSRSBottom, double coordBoxLeft, double coordBoxRight)
 		{
+
 			var image = plan.StructureSet.Image;
-			VVector leftFidusStart = dicomPosition;                // only to get the z-coord of the dicomPosition, x and y coord will be reassigned
-			VVector rightFidusStart = dicomPosition;               // only to get the z-coord of the dicomPosition, x and y coord will be reassigned
-			leftFidusStart.x = coordBoxLeft + 1;                        // start 1 mm in from gradient found in previous step *****************TODO Check for FFS!!!!!!!!!!!!!!!!!!!!!!!
-			rightFidusStart.x = coordBoxRight - 1;							// start 1 pixel in right side
-			leftFidusStart.y = coordSRSBottom - 91.5;                  // hopefully between fidusles...
-			rightFidusStart.y = leftFidusStart.y;
-			double stepsFidusLower = 0.5;             //   probably need sub-mm steps to get the fidusle-positions
+			string debug = "";
 
-			VVector leftFidusUpperEnd = leftFidusStart;     // to get the z-coord and x coord, y coord will be reassigned
-			VVector leftFidusLowerEnd = leftFidusStart;
-			VVector rightFidusUpperEnd = rightFidusStart;
-			VVector rightFidusLowerEnd = rightFidusStart;
+			// Start with lower profiles, i.e. to count the number of fidusles determining the long position in decimeter
+			// Assuming the bottom part of the wall doesn't flex and there are no roll
 
-			int lowerProfileDistance = 40;									// profile length to include all possible fidusles
-			int upperProfileDistance = 115;                                 // u gotta love magic numbers and hardcoded values ;)
+			VVector leftFidusLowerStart = dicomPosition;                // only to get the z-coord of the dicomPosition, x and y coord will be reassigned
+			VVector rightFidusLowerStart = dicomPosition;               // only to get the z-coord of the dicomPosition, x and y coord will be reassigned
+			leftFidusLowerStart.x = coordBoxLeft + 1;                        // start 1 mm in from gradient found in previous step *****************TODO Check for FFS!!!!!!!!!!!!!!!!!!!!!!!
+			rightFidusLowerStart.x = coordBoxRight - 1;                          // start 1 pixel in right side
+			leftFidusLowerStart.y = coordSRSBottom - 91.5;                  // hopefully between fidusles...
+			rightFidusLowerStart.y = leftFidusLowerStart.y;
+			double stepLength = 0.5;												//   probably need sub-mm steps to get the fidusle-positions
+
+			VVector leftFidusLowerEnd = leftFidusLowerStart;
+			VVector rightFidusLowerEnd = rightFidusLowerStart;
+
+			int lowerProfileDistance = 40;                                  // profile length to include all possible fidusles
 
 			leftFidusLowerEnd.y += lowerProfileDistance;                   // distance containing all fidusles determining the Long in 10 cm steps
-			leftFidusUpperEnd.y -= upperProfileDistance;                   // endpoint from dimension of box, 
 			rightFidusLowerEnd.y += lowerProfileDistance;                  // distance containing all fidusles determining the Long in 10 cm steps
-			rightFidusUpperEnd.y -= upperProfileDistance;                  // endpoint from dimension of box, 
 
-			var samplesFidusUpper = (int)Math.Ceiling((leftFidusStart - leftFidusUpperEnd).Length);
-			var samplesFidusLower = (int)Math.Ceiling((leftFidusStart - leftFidusLowerEnd).Length / stepsFidusLower);
+			var samplesFidusLower = (int)Math.Ceiling((leftFidusLowerStart - leftFidusLowerEnd).Length / stepLength);
+
+			leftFidusLowerStart.x = GetMaxHUX(image, leftFidusLowerStart, leftFidusLowerEnd, 4, samplesFidusLower);                       
+			rightFidusLowerStart.x = GetMaxHUX(image, rightFidusLowerStart, rightFidusLowerEnd, -4, samplesFidusLower);                      
+			leftFidusLowerEnd.x = leftFidusLowerStart.x;
+			rightFidusLowerEnd.x = rightFidusLowerStart.x;
+
+			int numberOfFidusLeft = GetNumberOfFidus(image, leftFidusLowerStart, leftFidusLowerEnd, lowerProfileDistance * 2);
+			int numberOfFidusRight = GetNumberOfFidus(image, rightFidusLowerStart, rightFidusLowerEnd, lowerProfileDistance * 2);
+
 
 
 			// Since the SRS-box walls flexes, the x-coordinate for upper profile may differ from start to end
 			// get the max HU in the upper part of the box ( top-most fidusel ) to determine the final x-value for the profile
-			var upperLeftFid = leftFidusUpperEnd;
-			upperLeftFid.y += 15;							// profile the last 30 mm  FFP and HFP unhandled
-			leftFidusUpperEnd.x = GetMaxHUX(image, upperLeftFid, leftFidusUpperEnd, 6, samplesFidusUpper);						// what is the 3 ?????????????????????????????????????
-			leftFidusStart.x = GetMaxHUX(image, leftFidusStart, leftFidusLowerEnd, 4, samplesFidusLower);                       // 
-			leftFidusLowerEnd.x = leftFidusStart.x;																				// Assuming the bottom part of the wall doesn't flex and there are no roll
+			// also need to get the x-value for start of the profile, concentrate on index-fidusle (Vrt 95 in SBRT frame coordinates)
 
-			var upperRightFid = rightFidusUpperEnd;
-			upperRightFid.y += 15;                           // profile the last 30 mm 
-			rightFidusUpperEnd.x = GetMaxHUX(image, upperRightFid, rightFidusUpperEnd, -6, samplesFidusUpper);
-			rightFidusStart.x = GetMaxHUX(image, rightFidusStart, rightFidusLowerEnd, -4, samplesFidusLower);                       // step up 0.2 mm
-			rightFidusLowerEnd.x = rightFidusStart.x;
+			// Start with finding the optimal position in x for the index fidusle, left and right
 
 
-			int numberOfFidusLeft = GetNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
-			double fidusLongLeft = GetLongFidus(image, leftFidusStart, leftFidusUpperEnd, upperProfileDistance * 2);
-			int numberOfFidusRight = GetNumberOfFidus(image, rightFidusStart, rightFidusLowerEnd, lowerProfileDistance * 2);
-			double fidusLongRight = GetLongFidus(image, rightFidusStart, rightFidusUpperEnd, upperProfileDistance * 2);
+			VVector leftIndexFidusStart = dicomPosition;
+			VVector rightIndexFidusStart = dicomPosition;
+			leftIndexFidusStart.x = coordBoxLeft + 1;
+			rightIndexFidusStart.x = coordBoxRight - 1;
+			leftIndexFidusStart.y = coordSRSBottom - 91.5;
+			rightIndexFidusStart.y = coordSRSBottom - 91.5;
+			VVector leftIndexFidusEnd = leftIndexFidusStart;
+			VVector rightIndexFidusEnd = rightIndexFidusStart;
+			int shortProfileLength = 20;
+			leftIndexFidusEnd.y -= shortProfileLength;
+			rightIndexFidusEnd.y -= shortProfileLength;
+
+			VVector leftFidusUpperStart = leftIndexFidusStart;      // to get the z-coord, x and y coord will be reassigned
+			VVector rightFidusUpperStart = rightIndexFidusStart;
+
+			leftFidusUpperStart.x = GetMaxHUX(image, leftIndexFidusStart, leftIndexFidusEnd, 6, shortProfileLength*2);
+			rightFidusUpperStart.x = GetMaxHUX(image, rightIndexFidusStart, rightIndexFidusEnd, 6, shortProfileLength * 2);
+
+
+			// startposition for profiles determined, next job the endposition
+
+			int upperProfileDistance = 115;
+			VVector leftTopFidusStart = dicomPosition;
+			VVector rightTopFidusStart = dicomPosition;
+			leftTopFidusStart.x = coordBoxLeft + 1;
+			rightTopFidusStart.x = coordBoxRight - 1;
+			leftTopFidusStart.y = coordSRSBottom - 91.5 - upperProfileDistance + shortProfileLength;  // unnecessary complex but want to get the profile in same direction
+			rightTopFidusStart.y = coordSRSBottom - 91.5 - upperProfileDistance + shortProfileLength;
+			VVector leftTopFidusEnd = leftIndexFidusStart;
+			VVector rightTopFidusEnd = rightIndexFidusStart;
+
+			leftTopFidusEnd.y -= shortProfileLength;
+			rightTopFidusEnd.y -= shortProfileLength;
+
+
+			
+			VVector leftFidusUpperEnd = leftTopFidusEnd;
+			VVector rightFidusUpperEnd = rightTopFidusEnd;
+
+
+			leftFidusUpperEnd.x = GetMaxHUX(image, leftTopFidusStart, leftTopFidusEnd, 6, shortProfileLength*2);                      // what is the 3 ?????????????????????????????????????
+			rightFidusUpperEnd.x = GetMaxHUX(image, rightTopFidusStart, rightTopFidusEnd, -6, shortProfileLength * 2);
+
+
+			// Assuming the bottom part of the wall doesn't flex and there are no roll
+			
+			debug += "LeftLow xstart: " + leftFidusLowerStart.x.ToString("0.0") + "\n";
+			
+			debug += "Left x start: " + leftFidusUpperStart.x.ToString("0.0") + "\t End: " + leftFidusUpperEnd.x.ToString("0.0") + "\n\n";
+			debug += "RightLow xstart: " + rightFidusLowerStart.x.ToString("0.0") + "\n";
+			debug += "Right x start: " + rightFidusUpperStart.x.ToString("0.0") + "\t End: " + rightFidusUpperEnd.x.ToString("0.0") + "\n";
+			MessageBox.Show(debug);
+			double fidusLongLeft = GetLongFidus(image, leftFidusUpperStart, leftFidusUpperEnd, upperProfileDistance * 2);
+			double fidusLongRight = GetLongFidus(image, rightFidusUpperStart, rightFidusUpperEnd, upperProfileDistance * 2);
+
+
+
 
 			// Also need to check the long coordinate above and below (in z-dir) in case its a boundary case where the number of fidusles 
 			// steps up. Only neccesary in case of large value for fidusLong or if a discrepancy between the number of fidusles found left and right,
 			// or if the long value is not found. +/- 10 mm shift in z-dir is enough to avoid boundary condition *************TODO: check for FFS!!!!!!!!!!!!!
-			// TODO: not very DRY...
 
 			double coordSRSLong = 0;
-			if (numberOfFidusLeft != numberOfFidusRight || fidusLongLeft > 97 || fidusLongRight > 97 || fidusLongLeft == 0.0 || fidusLongRight ==0)
-            {
+
+			if (numberOfFidusLeft != numberOfFidusRight || fidusLongLeft > 97 || fidusLongRight > 97 || fidusLongLeft == 0.0 || fidusLongRight == 0)
+			{
 				int shiftZ = 10;
-				leftFidusStart.z += shiftZ;
+				leftFidusLowerStart.z += shiftZ;
 				leftFidusLowerEnd.z += shiftZ;
 				leftFidusUpperEnd.z += shiftZ;
-				rightFidusStart.z += shiftZ;
+				rightFidusLowerStart.z += shiftZ;
 				rightFidusLowerEnd.z += shiftZ;
 				rightFidusUpperEnd.z += shiftZ;
 
-				int nOfFidusLeft1 = GetNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
-				double fidusLLeft1 = GetLongFidus(image, leftFidusStart, leftFidusUpperEnd, upperProfileDistance * 2);
-				int nOfFidusRight1 = GetNumberOfFidus(image, rightFidusStart, rightFidusLowerEnd, lowerProfileDistance * 2);
-				double fidusLRight1 = GetLongFidus(image, rightFidusStart, rightFidusUpperEnd, upperProfileDistance * 2);
 
-				leftFidusStart.z -= 2 * shiftZ;
+				int nOfFidusLeft1 = GetNumberOfFidus(image, leftFidusLowerStart, leftFidusLowerEnd, lowerProfileDistance * 2);
+				double fidusLLeft1 = GetLongFidus(image, leftFidusLowerStart, leftFidusUpperEnd, upperProfileDistance * 2);
+				int nOfFidusRight1 = GetNumberOfFidus(image, rightFidusLowerStart, rightFidusLowerEnd, lowerProfileDistance * 2);
+				double fidusLRight1 = GetLongFidus(image, rightFidusLowerStart, rightFidusUpperEnd, upperProfileDistance * 2);
+
+
+				leftFidusLowerStart.z -= 2 * shiftZ;
 				leftFidusLowerEnd.z -= 2 * shiftZ;
 				leftFidusUpperEnd.z -= 2 * shiftZ;
-				rightFidusStart.z -= 2 * shiftZ;
+				rightFidusLowerStart.z -= 2 * shiftZ;
 				rightFidusLowerEnd.z -= 2 * shiftZ;
 				rightFidusUpperEnd.z -= 2 * shiftZ;
 
-				int nOfFidusLeft2 = GetNumberOfFidus(image, leftFidusStart, leftFidusLowerEnd, lowerProfileDistance * 2);
-				double fidusLLeft2 = GetLongFidus(image, leftFidusStart, leftFidusUpperEnd, upperProfileDistance * 2);
-				int nOfFidusRight2 = GetNumberOfFidus(image, rightFidusStart, rightFidusLowerEnd, lowerProfileDistance * 2);
-				double fidusLRight2 = GetLongFidus(image, rightFidusStart, rightFidusUpperEnd, upperProfileDistance * 2);
+
+				int nOfFidusLeft2 = GetNumberOfFidus(image, leftFidusLowerStart, leftFidusLowerEnd, lowerProfileDistance * 2);
+				double fidusLLeft2 = GetLongFidus(image, leftFidusLowerStart, leftFidusUpperEnd, upperProfileDistance * 2);
+				int nOfFidusRight2 = GetNumberOfFidus(image, rightFidusLowerStart, rightFidusLowerEnd, lowerProfileDistance * 2);
+				double fidusLRight2 = GetLongFidus(image, rightFidusLowerStart, rightFidusUpperEnd, upperProfileDistance * 2);
+
+
 
 				// TODO add check to se if 1 and 2 are resonable
+
 				double coordLong1 = (nOfFidusLeft1 + nOfFidusRight1) * 50 + (fidusLLeft1 + fidusLRight1) / 2;
 				double coordLong2 = (nOfFidusLeft2 + nOfFidusRight2) * 50 + (fidusLLeft2 + fidusLRight2) / 2;
+
 				//Check if resonable agreement before assigning the final long coordinate as mean value, hard coded values for uncertainty...
 				// moved 10 mm in both directions i.e. expected difference in long is 20 mm
-                if (Math.Abs(coordLong2 - coordLong1) > 17 && Math.Abs(coordLong2 - coordLong1) < 23)	
+
+				if (Math.Abs(coordLong2 - coordLong1) > 17 && Math.Abs(coordLong2 - coordLong1) < 23)
 				{
 					coordSRSLong = (coordLong1 + coordLong2) / 2;
 					MessageBox.Show("first " + coordLong1.ToString("0.0") + "\t second " + coordLong2.ToString("0.0"));
 				}
-                else
-                {
+				else
+				{
 					MessageBox.Show("Problem :first " + coordLong1.ToString("0.0") + "\t second " + coordLong2.ToString("0.0"));
 				}
-
 			}
-            else
-            {
+			else
+			{
 				coordSRSLong = (numberOfFidusLeft + numberOfFidusRight) * 50 + (fidusLongLeft + fidusLongRight) / 2;
 				MessageBox.Show("Left side " + fidusLongLeft.ToString("0.0") + "\t Right side " + fidusLongRight.ToString("0.0"));
 			}
-
 			return coordSRSLong;
-
 		}
 
 
@@ -1270,10 +1333,10 @@ namespace VMS.TPS
 					coord.Add(profFidus[i].Position.y);
 				}
 			var fid = new PatternGradient();
-			fid.DistanceInMm = new List<double>() { 0, 2 };        // distance between gradients
-			fid.GradientHUPerMm = new List<int>() { 100, -100 };    // smallest number of fidusles is one?  
-			fid.PositionToleranceMm = new List<int>() { 0, 2 };                         // tolerance for the gradient position, parameter to optimize depending probably of resolution of profile
-			fid.GradIndexForCoord = 0;                      // index of gradient position to return, in this case used only as a counter of number of fidusles
+			fid.DistanceInMm = new List<double>() { 0, 2 };			// distance between gradients
+			fid.GradientHUPerMm = new List<int>() { 100, -100 };    // smallest number of fidusles is one?  actually its zero! TODO have to handle this case!!
+			fid.PositionToleranceMm = new List<int>() { 0, 2 };		// tolerance for the gradient position, parameter to optimize depending probably of resolution of profile
+			fid.GradIndexForCoord = 0;								// index of gradient position to return, in this case used only as a counter for number of fidusles
 															
 			findGradientResult = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			// keep adding gradient pattern until no more fidusles found
@@ -1299,6 +1362,7 @@ namespace VMS.TPS
 			double findFirstFidus;
 			double findSecondFidus;
 
+
 			var profFidus = image.GetImageProfile(fidusStart, fidusEnd, new double[samples]);
 
 			for (int i = 0; i < samples; i++)
@@ -1308,12 +1372,15 @@ namespace VMS.TPS
 			}
 
 
-			int diagFidusGradient = 90 / (int)Math.Round(Math.Sqrt(image.ZRes));	//diagonal fidusle have flacker gradient
-			double diagFidusWidth = 2 * Math.Sqrt(image.ZRes);						// and is wider, both values depend on resolution in Z
+			int diagFidusGradient = 80 / (int)Math.Round(Math.Sqrt(image.ZRes));	//diagonal fidusle have flacker gradient
+			//double diagFidusGradientMinLength = 2 * Math.Sqrt(image.ZRes);
+			double diagFidusWidth = 0.5 * Math.Sqrt(image.ZRes);						// and is wider, both values depend on resolution in Z
+
 
 			 var fid = new PatternGradient();
 			fid.DistanceInMm = new List<double>() { 0, 2 , 49, diagFidusWidth , 99, 2 };//};        // distance between gradients
-			fid.GradientHUPerMm = new List<int>() { 100, -100 , diagFidusGradient, -diagFidusGradient , 100, -100 };//};    // diagonal fidusle have flacker gradient
+			fid.GradientHUPerMm = new List<int>() { 90, -90, diagFidusGradient, -diagFidusGradient , 90, -90 };//};    // diagonal fidusle have flacker gradient
+			//fid.MinGradientLength = new List<double>() { 0, 0, 0, 0, 0, 0 };//};        // minimum length of gradient, needed in case of noicy image
 			fid.PositionToleranceMm = new List<int>() { 2, 3, 105, 4, 105, 3};                        // tolerance for the gradient position, in this case the maximum distance is approx 105 mm
 			fid.GradIndexForCoord = 0;                      // index of gradient position to return (zero based index)
 
@@ -1324,13 +1391,48 @@ namespace VMS.TPS
 			double findFirstFidusEnd = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			findFirstFidus = (findFirstFidusStart + findFirstFidusEnd) / 2;
 			//Find position of second fidus (diagonal)
+
 			fid.GradIndexForCoord = 2;
 			double findSecondFidusStart = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			fid.GradIndexForCoord = 3;
 			double findSecondFidusEnd = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			findSecondFidus = (findSecondFidusStart + findSecondFidusEnd) / 2;
-			return Math.Abs(findSecondFidus-findFirstFidus);
+
+
+			/*/ debug
+			string debugFileName = @"D:\\debug\\debug.txt";
+			try
+            {
+				using (StreamWriter writeLong = File.AppendText(debugFileName))
+				{
+				
+
+					for (int i = 0; i < samples; i++)
+					{
+						writeLong.WriteLine(profFidus[i].Position.y.ToString("0.0") + "\t" + profFidus[i].Value);
+					}
+					writeLong.Close();
+					writeLong.Dispose();
+
+				} 
+
+
+
+
+			}
+            catch (Exception e)
+            {
+
+                throw e;
+            }*/
+
+
+			return Math.Abs(findSecondFidus - findFirstFidus);
+
+
+
 		}
+
 
 
 		/// <summary>
@@ -1433,30 +1535,120 @@ namespace VMS.TPS
 			}
 			if (index == hUPerMm.Count())
 			{
-
-                //debug ***********************
-               if (distMm[1] == 4.4)
-                {
-					MessageBox.Show("Dessa grad bottom: " + Math.Abs(gradPosition[index-3] - gradPosition[index - 4]).ToString("0.0") + "\t" + Math.Abs(gradPosition[index - 2] - gradPosition[index - 3]).ToString("0.0") +
-						"\t" +Math.Abs(gradPosition[index - 1] - gradPosition[index - 2]).ToString("0.0"));
-
-				}
-
 				return gradPosition[indexToReturn];
-				
 			}
 			else
 			{
-				//debug ***********************
-				if (distMm[1] == 4.4)
-				{
-					MessageBox.Show(debug);
-				}
 				return 0.0;
-				
+			}
+		} // end method 
+
+
+		//overloaded to also get minimum expected gradient length, needed for noisy images 
+		public double GetCoordinates(List<double> coord, List<double> valueHU, List<int> hUPerMm, List<double> distMm, List<int> posTolMm, int indexToReturn , List<double> minGradientLength)
+		{
+			string debug = "";
+			double[] grad = new double[coord.Count - 1];
+			double[] pos = new double[coord.Count - 1];
+			int index = 0;
+
+			double gradientStart;
+			double gradientEnd;
+			double gradientMiddle;
+			// resample profile to gradient with position inbetween profile points ( number of samples decreases with one)
+			for (int i = 0; i < coord.Count - 2; i++)
+			{
+				pos[i] = (coord[i] + coord[i + 1]) / 2;
+				grad[i] = (valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i]);
+			}
+
+
+
+			List<double> gradPosition = new List<double>();
+			int indexToReturnToInCaseOfFail = 0;
+
+			for (int i = 0; i < pos.Count(); i++)
+			{
+				if (index == hUPerMm.Count())                        //break if last condition passed 
+				{
+					break;
+				}
+				// if gradient larger than given gradient and in the same direction
+				//if (Math.Abs((valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i])) > (Math.Abs(hUPerMm[index])) && SameSign(grad[i], hUPerMm[index]))
+				if (Math.Abs(grad[i]) > Math.Abs(hUPerMm[index]) && SameSign(grad[i], hUPerMm[index]))
+				{
+					gradientStart = pos[i];
+					gradientEnd = pos[i];
+					i++;
+					//Keep stepping up while gradient larger than given huPerMm
+					while (Math.Abs(grad[i]) > (Math.Abs(hUPerMm[index])) && SameSign(grad[i], hUPerMm[index]) && i < coord.Count - 2)
+					{
+						gradientEnd = pos[i];
+						if (index == 0)
+						{
+							indexToReturnToInCaseOfFail = i + 1; // if the search fails, i.e. can not find next gradient within the distance given, return to position directly after first gradient ends
+						}
+						i++;
+					}
+					gradientMiddle = (gradientStart + gradientEnd) / 2;
+					if (Math.Abs(gradientStart - gradientEnd)>=minGradientLength[index])
+
+					{
+
+					// if this is the first gradient (i.e. index == 0), cannot yet compare the distance between the gradients, step up index and continue
+						if (index == 0)
+						{
+							gradPosition.Add(gradientMiddle);
+							index++;
+						}
+						// if gradient found before expected position (outside tolerance), keep looking
+						else if (Math.Abs(gradientMiddle - gradPosition[index - 1]) < distMm[index] - posTolMm[index] && i < pos.Count() - 2)
+						{
+							i++;
+							//MessageBox.Show(Math.Abs(gradientMiddle - gradPosition[index - 1]).ToString("0.0"));
+						}
+						// if next gradient not found within tolerance distance, means that the first gradient is probably wrong, reset index
+						else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) > (Math.Abs(distMm[index]) + posTolMm[index])))
+						{
+							debug += "Fail " + (Math.Abs(gradientMiddle - gradPosition[index - 1])).ToString("0.0") + "\t" + (distMm[index] + posTolMm[index]).ToString("0.0") + "\n";
+							gradPosition.Clear();
+							index = 0;
+							i = indexToReturnToInCaseOfFail;
+						}
+						//  compare the distance between the gradients to the criteria given, step up index and continue if within tolerance
+						else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) > (distMm[index] - posTolMm[index])) && (Math.Abs(gradientMiddle - gradPosition[index - 1]) < (distMm[index] + posTolMm[index])))
+						{
+							//debug += pos[i].ToString("0.0") + "\t" + (gradPosition[index] - gradPosition[index - 1]).ToString("0.0") + "\t" + grad[i].ToString("0.0") + "\n";
+							gradPosition.Add(gradientMiddle);
+							index++;
+							if (index == 1)
+							{
+								indexToReturnToInCaseOfFail = i;
+							}
+						}
+						else
+						{   // if not the first gradient and the distance betwen the gradients are not met within the tolerance; reset index and positions and continue search
+							// reset search from second gradient position to avoid missing the actual gradient.
+							if (gradPosition.Count > 1 && indexToReturnToInCaseOfFail > 0)
+							{
+								i = indexToReturnToInCaseOfFail;
+							}
+							gradPosition.Clear();
+							index = 0;
+						}
+
+					}
+				}
+			}
+			if (index == hUPerMm.Count())
+			{
+				return gradPosition[indexToReturn];
+			}
+			else
+			{
+				return 0.0;
 			}
 		} // end method GetCoordinates
-
 
 
 	}
