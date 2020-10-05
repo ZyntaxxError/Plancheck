@@ -24,8 +24,8 @@ using System.Diagnostics;
 /* TODO: create plan category (enum) and make category specific checks for tbi, sbrt, electron, etc
  * TODO: IsPlanSRT fails if a revision made...
  * TODO Plan sum; foreach plan: check, easier to do in build and wpf...
- * TODO: only the person that created this plan can run the SBRT- script... or the creator can not run it
- * 
+ * TODO: only the person that created this plan can run the SBRT- script... or the creator can not run it probably better, and need to be physcisist (*sp)
+ * as the SBF setup coordinates has to be checked too
  * */
 
 namespace VMS.TPS
@@ -831,7 +831,25 @@ namespace VMS.TPS
 			// get the dicom-position representing vertical coordinate 0 in the SBRT frame
 			frameOfRefSBRT.y = GetSBRTBottomCoord(plan, dicomPosition);    // igores the position of dicomPosition in x and y and takes only z-position, takes bottom and center of image
 
-
+			/*try
+			{
+				//Pass the filepath and filename to the StreamWriter Constructor
+				StreamWriter sw = new StreamWriter("H:\\Test.txt");
+				//Write a line of text
+				sw.WriteLine("Hello World!!");
+				//Write a second line of text
+				sw.WriteLine("From the StreamWriter class");
+				//Close the file
+				sw.Close();
+			}
+			catch (Exception e)
+			{
+				MessageBox.Show("Exception: " + e.Message);
+			}
+			finally
+			{
+				MessageBox.Show("Executing finally block.");
+			}*/
 
 
 
@@ -1098,7 +1116,7 @@ namespace VMS.TPS
 			PatternGradient sbrtSide = new PatternGradient();
 			sbrtSide.DistanceInMm = new List<double>() { 0, 2, 13 };     // distance between gradients, mean values from profiling 10 pat 
 			sbrtSide.GradientHUPerMm = new List<int>() { 100, -100, 100 };
-			sbrtSide.PositionToleranceMm = new List<int>() { 0, 4, 4 };                        // tolerance for the gradient position
+			sbrtSide.PositionToleranceMm = new List<int>() { 0, 2, 2 };                        // tolerance for the gradient position
 			sbrtSide.GradIndexForCoord = 2;                      // index of gradient position to return (zero based index), i.e. the start of the inner wall
 
 			double[] coordBoxLat = new double[2];
@@ -1118,11 +1136,16 @@ namespace VMS.TPS
 			// Start with lower profiles, i.e. to count the number of fidusles determining the long position in decimeter
 			// Assuming the bottom part of the wall doesn't flex and there are no roll
 
+			double offsetSides = 2;
+			double offsetBottom = 91.5;
+			int searchRange = 8;
+
+
 			VVector leftFidusLowerStart = dicomPosition;                // only to get the z-coord of the dicomPosition, x and y coord will be reassigned
 			VVector rightFidusLowerStart = dicomPosition;               // only to get the z-coord of the dicomPosition, x and y coord will be reassigned
-			leftFidusLowerStart.x = coordBoxLeft + 1;                        // start 1 mm in from gradient found in previous step *****************TODO Check for FFS!!!!!!!!!!!!!!!!!!!!!!!
-			rightFidusLowerStart.x = coordBoxRight - 1;                          // start 1 pixel in right side
-			leftFidusLowerStart.y = coordSRSBottom - 91.5;                  // hopefully between fidusles...
+			leftFidusLowerStart.x = coordBoxLeft + offsetSides;                        // start a small distance in from gradient found in previous step
+			rightFidusLowerStart.x = coordBoxRight - offsetSides;                          
+			leftFidusLowerStart.y = coordSRSBottom - offsetBottom;                  // hopefully between fidusles...
 			rightFidusLowerStart.y = leftFidusLowerStart.y;
 			double stepLength = 0.5;												//   probably need sub-mm steps to get the fidusle-positions
 
@@ -1136,8 +1159,8 @@ namespace VMS.TPS
 
 			var samplesFidusLower = (int)Math.Ceiling((leftFidusLowerStart - leftFidusLowerEnd).Length / stepLength);
 
-			leftFidusLowerStart.x = GetMaxHUX(image, leftFidusLowerStart, leftFidusLowerEnd, 4, samplesFidusLower);                       
-			rightFidusLowerStart.x = GetMaxHUX(image, rightFidusLowerStart, rightFidusLowerEnd, -4, samplesFidusLower);                      
+			leftFidusLowerStart.x = GetMaxHUX(image, leftFidusLowerStart, leftFidusLowerEnd, searchRange, samplesFidusLower);                       
+			rightFidusLowerStart.x = GetMaxHUX(image, rightFidusLowerStart, rightFidusLowerEnd, -searchRange, samplesFidusLower);                      
 			leftFidusLowerEnd.x = leftFidusLowerStart.x;
 			rightFidusLowerEnd.x = rightFidusLowerStart.x;
 
@@ -1152,13 +1175,12 @@ namespace VMS.TPS
 
 			// Start with finding the optimal position in x for the index fidusle, left and right
 
-
 			VVector leftIndexFidusStart = dicomPosition;
 			VVector rightIndexFidusStart = dicomPosition;
-			leftIndexFidusStart.x = coordBoxLeft + 1;
-			rightIndexFidusStart.x = coordBoxRight - 1;
-			leftIndexFidusStart.y = coordSRSBottom - 91.5;
-			rightIndexFidusStart.y = coordSRSBottom - 91.5;
+			leftIndexFidusStart.x = coordBoxLeft + offsetSides;
+			rightIndexFidusStart.x = coordBoxRight - offsetSides;
+			leftIndexFidusStart.y = coordSRSBottom - offsetBottom;
+			rightIndexFidusStart.y = coordSRSBottom - offsetBottom;
 			VVector leftIndexFidusEnd = leftIndexFidusStart;
 			VVector rightIndexFidusEnd = rightIndexFidusStart;
 			int shortProfileLength = 20;
@@ -1168,8 +1190,8 @@ namespace VMS.TPS
 			VVector leftFidusUpperStart = leftIndexFidusStart;      // to get the z-coord, x and y coord will be reassigned
 			VVector rightFidusUpperStart = rightIndexFidusStart;
 
-			leftFidusUpperStart.x = GetMaxHUX(image, leftIndexFidusStart, leftIndexFidusEnd, 6, shortProfileLength*2);
-			rightFidusUpperStart.x = GetMaxHUX(image, rightIndexFidusStart, rightIndexFidusEnd, 6, shortProfileLength * 2);
+			leftFidusUpperStart.x = GetMaxHUX(image, leftIndexFidusStart, leftIndexFidusEnd, searchRange, shortProfileLength*2);
+			rightFidusUpperStart.x = GetMaxHUX(image, rightIndexFidusStart, rightIndexFidusEnd, -searchRange, shortProfileLength * 2);
 
 
 			// startposition for profiles determined, next job the endposition
@@ -1177,40 +1199,39 @@ namespace VMS.TPS
 			int upperProfileDistance = 115;
 			VVector leftTopFidusStart = dicomPosition;
 			VVector rightTopFidusStart = dicomPosition;
-			leftTopFidusStart.x = coordBoxLeft + 1;
-			rightTopFidusStart.x = coordBoxRight - 1;
-			leftTopFidusStart.y = coordSRSBottom - 91.5 - upperProfileDistance + shortProfileLength;  // unnecessary complex but want to get the profile in same direction
-			rightTopFidusStart.y = coordSRSBottom - 91.5 - upperProfileDistance + shortProfileLength;
-			VVector leftTopFidusEnd = leftIndexFidusStart;
-			VVector rightTopFidusEnd = rightIndexFidusStart;
+			leftTopFidusStart.x = coordBoxLeft + offsetSides;
+			rightTopFidusStart.x = coordBoxRight - offsetSides;
+			leftTopFidusStart.y = coordSRSBottom - offsetBottom - upperProfileDistance + shortProfileLength;  // unnecessary complex but want to get the profile in same direction
+			rightTopFidusStart.y = coordSRSBottom - offsetBottom - upperProfileDistance + shortProfileLength;
+			VVector leftTopFidusEnd = leftTopFidusStart;
+			VVector rightTopFidusEnd = rightTopFidusStart;
 
 			leftTopFidusEnd.y -= shortProfileLength;
 			rightTopFidusEnd.y -= shortProfileLength;
 
-
-			
 			VVector leftFidusUpperEnd = leftTopFidusEnd;
 			VVector rightFidusUpperEnd = rightTopFidusEnd;
 
+			leftFidusUpperEnd.x = GetMaxHUX(image, leftTopFidusStart, leftTopFidusEnd, searchRange, shortProfileLength*2);                      // what is the 3 ?????????????????????????????????????
+			rightFidusUpperEnd.x = GetMaxHUX(image, rightTopFidusStart, rightTopFidusEnd, -searchRange, shortProfileLength * 2);
 
-			leftFidusUpperEnd.x = GetMaxHUX(image, leftTopFidusStart, leftTopFidusEnd, 6, shortProfileLength*2);                      // what is the 3 ?????????????????????????????????????
-			rightFidusUpperEnd.x = GetMaxHUX(image, rightTopFidusStart, rightTopFidusEnd, -6, shortProfileLength * 2);
-
-
-			// Assuming the bottom part of the wall doesn't flex and there are no roll
+			debug += "LeftBox: \t\t" + coordBoxLeft.ToString("0.0") + "\n";
+			debug += "LeftLow xstart: \t" + leftFidusLowerStart.x.ToString("0.0") + "\n";
 			
-			debug += "LeftLow xstart: " + leftFidusLowerStart.x.ToString("0.0") + "\n";
+			debug += "Left x start: \t" + leftFidusUpperStart.x.ToString("0.0") + "\n End: \t\t" + leftFidusUpperEnd.x.ToString("0.0") + "\n\n";
 			
-			debug += "Left x start: " + leftFidusUpperStart.x.ToString("0.0") + "\t End: " + leftFidusUpperEnd.x.ToString("0.0") + "\n\n";
-			debug += "RightLow xstart: " + rightFidusLowerStart.x.ToString("0.0") + "\n";
-			debug += "Right x start: " + rightFidusUpperStart.x.ToString("0.0") + "\t End: " + rightFidusUpperEnd.x.ToString("0.0") + "\n";
-			MessageBox.Show(debug);
+
+			debug += "RightBox: \t\t" + coordBoxRight.ToString("0.0") + "\n";
+			debug += "RightLow xstart: \t" + rightFidusLowerStart.x.ToString("0.0") + "\n";
+			debug += "Right x start: \t" + rightFidusUpperStart.x.ToString("0.0") + "\n End: \t\t" + rightFidusUpperEnd.x.ToString("0.0") + "\n\n\n";
+			
 			double fidusLongLeft = GetLongFidus(image, leftFidusUpperStart, leftFidusUpperEnd, upperProfileDistance * 2);
 			double fidusLongRight = GetLongFidus(image, rightFidusUpperStart, rightFidusUpperEnd, upperProfileDistance * 2);
 
+			debug += "Left side long:  " + fidusLongLeft.ToString("0.0") + "\t Right side long:  " + fidusLongRight.ToString("0.0") + "\n\n";
+			debug += "Left side fidus:  " + numberOfFidusLeft + "\t Right side fidus:  " + numberOfFidusRight;
 
-
-
+			MessageBox.Show(debug);
 			// Also need to check the long coordinate above and below (in z-dir) in case its a boundary case where the number of fidusles 
 			// steps up. Only neccesary in case of large value for fidusLong or if a discrepancy between the number of fidusles found left and right,
 			// or if the long value is not found. +/- 10 mm shift in z-dir is enough to avoid boundary condition *************TODO: check for FFS!!!!!!!!!!!!!
@@ -1270,7 +1291,7 @@ namespace VMS.TPS
 			else
 			{
 				coordSRSLong = (numberOfFidusLeft + numberOfFidusRight) * 50 + (fidusLongLeft + fidusLongRight) / 2;
-				MessageBox.Show("Left side " + fidusLongLeft.ToString("0.0") + "\t Right side " + fidusLongRight.ToString("0.0"));
+				//MessageBox.Show("Left side " + fidusLongLeft.ToString("0.0") + "\t Right side " + fidusLongRight.ToString("0.0"));
 			}
 			return coordSRSLong;
 		}
@@ -1290,6 +1311,7 @@ namespace VMS.TPS
 		public static double GetMaxHUX(Image image, VVector fidusStart, VVector fidusEnd, double dirLengthInmm, int samples )
 		{
 			double newMax = 0.0;
+			string debugM = "";
 			List<double> HUTemp = new List<double>();
 			List<double> cooTemp = new List<double>();
 			double finalXValue = 0;
@@ -1297,6 +1319,7 @@ namespace VMS.TPS
 			{
 				fidusStart.x += 0.1* dirLengthInmm/ Math.Abs(dirLengthInmm);  // ugly way to get the direction                     
 				fidusEnd.x = fidusStart.x;
+
 
 				var profFidus = image.GetImageProfile(fidusStart, fidusEnd, new double[samples]);
 
@@ -1309,11 +1332,12 @@ namespace VMS.TPS
 				{
 					newMax = HUTemp.Max();
 					finalXValue = fidusStart.x;
+					debugM += finalXValue.ToString("0.0") + "\t" + newMax.ToString("0.0") + "\n";
 				}
 				HUTemp.Clear();
 				cooTemp.Clear();
 			}
-			//MessageBox.Show("max HU: " + newMax.ToString("0.0"));
+			//MessageBox.Show(debugM);
 			return finalXValue;
 		}
 
@@ -1372,14 +1396,14 @@ namespace VMS.TPS
 			}
 
 
-			int diagFidusGradient = 80 / (int)Math.Round(Math.Sqrt(image.ZRes));	//diagonal fidusle have flacker gradient
+			int diagFidusGradient = 100 / (int)Math.Round(Math.Sqrt((Math.Sqrt(image.ZRes))));	//diagonal fidusle have flacker gradient
 			//double diagFidusGradientMinLength = 2 * Math.Sqrt(image.ZRes);
-			double diagFidusWidth = 0.5 * Math.Sqrt(image.ZRes);						// and is wider, both values depend on resolution in Z
+			double diagFidusWidth = 1 + 0.5 * Math.Sqrt(image.ZRes);						// and is wider, both values depend on resolution in Z
 
 
 			 var fid = new PatternGradient();
 			fid.DistanceInMm = new List<double>() { 0, 2 , 49, diagFidusWidth , 99, 2 };//};        // distance between gradients
-			fid.GradientHUPerMm = new List<int>() { 90, -90, diagFidusGradient, -diagFidusGradient , 90, -90 };//};    // diagonal fidusle have flacker gradient
+			fid.GradientHUPerMm = new List<int>() { 100, -100, diagFidusGradient, -diagFidusGradient , 100, -100 };//};    // diagonal fidusle have flacker gradient
 			//fid.MinGradientLength = new List<double>() { 0, 0, 0, 0, 0, 0 };//};        // minimum length of gradient, needed in case of noicy image
 			fid.PositionToleranceMm = new List<int>() { 2, 3, 105, 4, 105, 3};                        // tolerance for the gradient position, in this case the maximum distance is approx 105 mm
 			fid.GradIndexForCoord = 0;                      // index of gradient position to return (zero based index)
@@ -1398,33 +1422,6 @@ namespace VMS.TPS
 			double findSecondFidusEnd = GetCoordinates(coord, valHU, fid.GradientHUPerMm, fid.DistanceInMm, fid.PositionToleranceMm, fid.GradIndexForCoord);
 			findSecondFidus = (findSecondFidusStart + findSecondFidusEnd) / 2;
 
-
-			/*/ debug
-			string debugFileName = @"D:\\debug\\debug.txt";
-			try
-            {
-				using (StreamWriter writeLong = File.AppendText(debugFileName))
-				{
-				
-
-					for (int i = 0; i < samples; i++)
-					{
-						writeLong.WriteLine(profFidus[i].Position.y.ToString("0.0") + "\t" + profFidus[i].Value);
-					}
-					writeLong.Close();
-					writeLong.Dispose();
-
-				} 
-
-
-
-
-			}
-            catch (Exception e)
-            {
-
-                throw e;
-            }*/
 
 
 			return Math.Abs(findSecondFidus - findFirstFidus);
