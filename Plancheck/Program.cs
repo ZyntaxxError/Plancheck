@@ -24,7 +24,7 @@ using System.Diagnostics;
 /* TODO: create plan category (enum) and make category specific checks for tbi, sbrt, electron, etc
  * TODO: IsPlanSRT fails if a revision made...
  * TODO Plan sum; foreach plan: check, easier to do in build and wpf...
- * TODO: only the person that created this plan can run the SBRT- script... or the creator can not run it probably better, and need to be physcisist (*sp)
+ * TODO: only the person that created this plan can run the SBRT- script... or the creator can not run it probably better, and need to be physicist, and part of the sbrt group
  * as the SBF setup coordinates has to be checked too
  * TODO the double checking of width in GetTransverseCoordInSBRTFrame should be smaller tolerance, now +/- 3 mm
  * 
@@ -891,7 +891,7 @@ namespace VMS.TPS
 			double[] returnCoo = new double[3];
 			var image = plan.StructureSet.Image;
 
-			// If bottom found, dubblecheck that the frameOfRefSBRT.y really is the bottom of the SBRT-frame by taking profiles in the sloping part of the SBRT frame and comparing
+			// If bottom found, call method to dubblecheck that the frameOfRefSBRT.y really is the bottom of the SBRT-frame by taking profiles in the sloping part of the SBRT frame and comparing
 			// width with expected width at respective height above the bottom
 			if (frameOfRefSBRT.y != 0 && DoubleCheckSBRTVrt(image, frameOfRefSBRT))
 			{
@@ -924,8 +924,11 @@ namespace VMS.TPS
 
 		private bool DoubleCheckSBRTVrt(Image image, VVector frameOfRefSBRT)
 		{
-			// 10 mm above the bottom the expected width of the frame is 349 mm (third gradient, i.e. the inner surface of the inner wall) Changes fast with height... approx. 140 deg angle of box, 12 mm above; 356...
+			// 10 mm above the bottom the expected width of the frame is 349 mm (third gradient, i.e. the inner surface of the inner wall) Changes fast with height...
+			// approx. 3.46 mm in width per mm in height ( 2*Tan(50) ) , i.e. ca +/-5 mm for +/-2 mm uncertainty in vrt
 			bool checkResult = false;
+			int expectedWidth = 349;
+			int widthTolerans = 5;
 			double xLeftUpperCorner = image.Origin.x - image.XRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
 			VVector leftProfileStart = frameOfRefSBRT;                // only to get the z-coord of the passed in VVector, x and y coord will be reassigned
 			VVector rightProfileStart = frameOfRefSBRT;               // only to get the z-coord of the passed in VVector, x and y coord will be reassigned
@@ -974,19 +977,13 @@ namespace VMS.TPS
 			coordBoxLat[0] = GetCoordinates(cooLeft, valHULeft, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.GradIndexForCoord);
 			coordBoxLat[1] = GetCoordinates(cooRight, valHURight, sbrtSide.GradientHUPerMm, sbrtSide.DistanceInMm, sbrtSide.PositionToleranceMm, sbrtSide.GradIndexForCoord);
 			//coordBoxLat[2] = ((coordBoxRight + coordBoxLeft) / 2);
-			if (coordBoxLat[0] != 0 && coordBoxLat[1] != 0 && Math.Abs(coordBoxLat[1] - coordBoxLat[0]) < 356 && Math.Abs(coordBoxLat[1] - coordBoxLat[0]) > 342)
+			if (coordBoxLat[0] != 0 && coordBoxLat[1] != 0 && Math.Abs(coordBoxLat[1] - coordBoxLat[0]) < expectedWidth + widthTolerans && Math.Abs(coordBoxLat[1] - coordBoxLat[0]) > expectedWidth - widthTolerans)
 			{
 				checkResult = true;
 			}
 			MessageBox.Show("Width of slanted box side " + Math.Abs(coordBoxLat[1] - coordBoxLat[0]).ToString("0.0"));
 			return checkResult;
 		}
-
-
-
-
-
-		// TODO: uses leftuppercorner in bottom and sides
 
 
 
@@ -1300,23 +1297,22 @@ namespace VMS.TPS
 				double fidusLRight2 = GetLongFidus(image, rightFidusLowerStart, rightFidusUpperEnd, upperProfileDistance * 2);
 
 
-
-				// TODO add check to se if 1 and 2 are resonable
-
 				double coordLong1 = (nOfFidusLeft1 + nOfFidusRight1) * 50 + (fidusLLeft1 + fidusLRight1) / 2;
 				double coordLong2 = (nOfFidusLeft2 + nOfFidusRight2) * 50 + (fidusLLeft2 + fidusLRight2) / 2;
 
-				//Check if resonable agreement before assigning the final long coordinate as mean value, hard coded values for uncertainty...
-				// moved 10 mm in both directions i.e. expected difference in long is 20 mm
-
-				if (Math.Abs(coordLong2 - coordLong1) > 17 && Math.Abs(coordLong2 - coordLong1) < 23)
+                //Check if resonable agreement before assigning the final long coordinate as mean value, hard coded values for uncertainty...
+				// left and right side should be within 2 mm and not zero
+                // moved 10 mm in both directions i.e. expected difference in long is 20 mm
+                if (nOfFidusLeft1 == nOfFidusRight1 && nOfFidusLeft2 == nOfFidusRight2 && Math.Abs(fidusLLeft1- fidusLRight1) < 2 && Math.Abs(fidusLLeft2 - fidusLRight2) < 2 && fidusLLeft1 != 0 && fidusLLeft2 != 0)
 				{
-					coordSRSLong = (coordLong1 + coordLong2) / 2;
-					MessageBox.Show("first " + coordLong1.ToString("0.0") + "\t second " + coordLong2.ToString("0.0"));
+					if (Math.Abs(coordLong2 - coordLong1) > 18 && Math.Abs(coordLong2 - coordLong1) < 22)
+					{
+						coordSRSLong = (coordLong1 + coordLong2) / 2;
+					}
 				}
 				else
 				{
-					MessageBox.Show("Problem :first " + coordLong1.ToString("0.0") + "\t second " + coordLong2.ToString("0.0"));
+				//	MessageBox.Show("Problem :first " + coordLong1.ToString("0.0") + "\t second " + coordLong2.ToString("0.0"));
 				}
 			}
 			else
