@@ -14,6 +14,7 @@ using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
 using System.IO;
 using System.Diagnostics;
+using System.CodeDom.Compiler;
 
 
 /* TODO: create plan category (enum) and make category specific checks for tbi, sbrt, electron, etc
@@ -44,27 +45,36 @@ namespace VMS.TPS
 				string courseIntent = context.Course.Intent;
 				string courseId = context.Course.Id;
 
+				string messageTitle = "Quick check on " + courseId + " " + plan.Id + "\n\n";
+								//CheckPlanCategory(plan) +
 				string message =
-				"Quick check on " + courseId + " " + plan.Id + "\n\n" +
-				//CheckPlanCategory(plan) +
 				CheckCourseIntent(courseIntent, plan) + "\n" +
+				CheckPlanNamingConvention(plan) +
 				CheckClinProt(plan) +
-				CheckPlanProp(plan, plan.StructureSet) +
+				CheckTargetVolumeID(plan, plan.StructureSet) +
 				CheckCouchStructure(plan.StructureSet) +
 				CheckSetupField(plan) + "\n" +
-				"Treatment fields \n" +
-				"ID \t Energy \t Tech. \t Drate \t MLC \n" +
+				//"Treatment fields \n" +
+				//"ID \t Energy \t Tech. \t Drate \t MLC \n" +
 				CheckFieldRules(plan) +
 				CheckFieldNamingConvention(course, plan);
-				//SimpleCollisionCheck(plan);
-				MessageBox.Show(message);
+                //SimpleCollisionCheck(plan);
+
+                if (message.Length == 0)
+                {
+					message = "No comments...";
+                }
+
+				MessageBox.Show(message, messageTitle);
 
 
 			}
 		}
 
 
-		/*
+
+
+        /*
 		private string CheckPlanCategory(PlanSetup plan)
 		{
 			string cResults = "";
@@ -89,7 +99,7 @@ namespace VMS.TPS
 
 		PlanCat planCat = PlanCat.SBRT;
 		*/
-		public void SetPlanCategory(Course course, PlanSetup plan)
+        public void SetPlanCategory(Course course, PlanSetup plan)
 		{
 			// first the easy categories
 
@@ -222,7 +232,7 @@ namespace VMS.TPS
 
 		// ********* 	Targetvolym; kollar att det är valt och av Dicom-typen PTV *********
 
-		public string CheckPlanProp(PlanSetup plan, StructureSet sSet)
+		public string CheckTargetVolumeID(PlanSetup plan, StructureSet sSet)
 		{
 			string cResults = "";
 			if (string.IsNullOrEmpty(plan.TargetVolumeID))
@@ -246,11 +256,64 @@ namespace VMS.TPS
 		}
 
 
-		// ********* 	Kontroll av att bordsstruktur existerar, är av rätt typ, inte är tom och har korrekt HU 	********* 
-		// begränsningar: kollar ej positionering i förhållande till body, ej heller att den inte är kapad. Rätt bordstyp kollas enbart på namn
-		// Exact IGRT Couch, thin, medium och thick kan i princip vara korrekt beroende på lokalisation...
 
-		public string CheckCouchStructure(StructureSet SSet)
+		// ********* 	Plannamn; kollar att det följer regler och att det inte är använt på behandlad eller godkänd plan i samma course *********
+		// TODO: assumes no more than 9 plans in a single course, might break if TMI... in that case use iteration or RegEx
+		private string CheckPlanNamingConvention(PlanSetup plan)
+		{
+			string cResults = string.Empty;
+			
+			char planIdFirstChar = plan.Id[0];                
+			char planIdSecondChar = plan.Id[1];
+			int planNumber;
+
+			if (char.ToUpperInvariant(planIdFirstChar) == 'P'  && int.TryParse(planIdSecondChar.ToString(), out planNumber ))
+            {
+
+				CheckOtherPlanIdInCourse(plan, planNumber, ref cResults);
+
+				if (!char.IsUpper(planIdFirstChar))
+				{
+					cResults += "* Please use upper case 'P' in plan ID.\n\n";
+				}
+			}
+			return cResults;
+		}
+
+        private void CheckOtherPlanIdInCourse(PlanSetup plan, int planNumber, ref string cResults)
+        {
+			//TODO : make the function general so it can be used e.g. in field ID naming check
+			//TODO: check for revision, automatic or manually made (i.e. former plan retired or completed early) and in that case the appended ':[revision number]'
+			Course course = plan.Course;
+			char planIdFirstChar = plan.Id[0];                
+			char planIdSecondChar = plan.Id[1];
+			int usedNumber;
+
+			foreach (var ps in course.PlanSetups.Where(p => p.Id != plan.Id))
+            {
+				planIdFirstChar = ps.Id[0];
+				planIdSecondChar = ps.Id[1];
+				if (char.ToUpperInvariant(planIdFirstChar) == 'P' && int.TryParse(planIdSecondChar.ToString(), out usedNumber))
+				{
+
+					if (ps.ApprovalStatus == PlanSetupApprovalStatus.PlanningApproved || ps.ApprovalStatus == PlanSetupApprovalStatus.TreatmentApproved ||
+					ps.ApprovalStatus == PlanSetupApprovalStatus.Completed || ps.ApprovalStatus == PlanSetupApprovalStatus.CompletedEarly)
+                    {
+                        if (planNumber == usedNumber)
+                        {
+							cResults += "* Plan ID '" + planIdFirstChar + planIdSecondChar + "' has already been used in a " + ps.ApprovalStatus + " plan:\n" + ps.Id + "\n\n";
+						}
+                    }
+				}
+			}
+		}
+
+
+        // ********* 	Kontroll av att bordsstruktur existerar, är av rätt typ, inte är tom och har korrekt HU 	********* 
+        // begränsningar: kollar ej positionering i förhållande till body, ej heller att den inte är kapad. Rätt bordstyp kollas enbart på namn
+        // Exact IGRT Couch, thin, medium och thick kan i princip vara korrekt beroende på lokalisation...
+
+        public string CheckCouchStructure(StructureSet SSet)
 		{
 			string cResult = "";
 			bool couchExt = false;
@@ -345,7 +408,8 @@ namespace VMS.TPS
 		}
 
 		// Check that beam number doesn't exist in other approved or completed plans within the same Course (Retired is ok if revision...)
-		// TODO: failes to check if a number is skipped... however, that should only be done if the plan is approved 
+		// TODO: fails to check if a number is skipped... however, that should only be done if the plan is approved 
+		// TODO: check all plans regardless of status for plans where plan ID number is smaller than the plan under check
 		private void CheckIfBeamNumberUsedInOtherPlans(Course course, PlanSetup plan, List<int> beamNumbersInPlan, ref string cResult)
 		{
 			List<int> beamNumbersInOtherPlans = new List<int>();
@@ -362,10 +426,10 @@ namespace VMS.TPS
 				}
                 if (beamNumbersUsed.Count != 0)
                 {
-					cResult += " * Field ID already used in plan: \t" + ps.Id + " ( ";
-                    foreach (var f in beamNumbersUsed)
+					cResult += " * Field ID already used in a " + ps.ApprovalStatus + " plan: \t" + ps.Id + " ( ";
+                    foreach (var fieldId in beamNumbersUsed)
                     {
-						cResult += f.ToString() + ", ";
+						cResult += fieldId.ToString() + ", ";
 					}
 					cResult = cResult.Remove(cResult.Length - 2, 1);
 					cResult += ")\n";
