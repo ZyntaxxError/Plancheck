@@ -46,7 +46,7 @@ namespace VMS.TPS
 
 				string message =
 				"Quick check on " + courseId + " " + plan.Id + "\n\n" +
-				CheckPlanCategory(plan) +
+				//CheckPlanCategory(plan) +
 				CheckCourseIntent(courseIntent, plan) + "\n" +
 				CheckClinProt(plan) +
 				CheckPlanProp(plan, plan.StructureSet) +
@@ -55,7 +55,7 @@ namespace VMS.TPS
 				"Treatment fields \n" +
 				"ID \t Energy \t Tech. \t Drate \t MLC \n" +
 				CheckFieldRules(plan) +
-				CheckConsecutiveFieldNaming(course, plan);
+				CheckFieldNamingConvention(course, plan);
 				//SimpleCollisionCheck(plan);
 				MessageBox.Show(message);
 
@@ -64,7 +64,7 @@ namespace VMS.TPS
 		}
 
 
-
+		/*
 		private string CheckPlanCategory(PlanSetup plan)
 		{
 			string cResults = "";
@@ -75,26 +75,27 @@ namespace VMS.TPS
 			return cResults;
 		}
 
-        enum PlanCat
-        {
+		enum PlanCat
+		{
 			SBRT,
 			Electron,
 			CRT,
 			IMRT,
 			TBI,
 			TMI,
+		Mamill,
 			Unknown
-        }
+		}
 
 		PlanCat planCat = PlanCat.SBRT;
-
+		*/
 		public void SetPlanCategory(Course course, PlanSetup plan)
-        {
+		{
 			// first the easy categories
 
 
 
-        }
+		}
 
 		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering, aning klent men bör fungera) *********
 
@@ -282,20 +283,21 @@ namespace VMS.TPS
 			return cResult;
 		}
 
-		// ********* 	Kontroll att numrering av fält är konsekutivt, och att inte fältnumret använts i någon godkänd eller behandlad plan i samma Course *********
-		// kollar dock ej om man hoppar över ett nummer mellan planer
 
-		private string CheckConsecutiveFieldNaming(Course course, PlanSetup plan)
+        #region Treatment field naming convention
+
+        // ********* 	Kontroll att numrering av fält är konsekutivt, och att inte fältnumret använts i någon godkänd eller behandlad plan i samma Course *********
+        // kollar dock ej om man hoppar över ett nummer mellan planer
+        // TODO: recommend beam number change, prereq; need to check plan status and plan ID numbers
+        private string CheckFieldNamingConvention(Course course, PlanSetup plan)
 		{
-			string cResult = "";
-
-			// ugly code, but works, refactor somehow... but neccessary to check if Id is a number first and find the smallest
-
-			int smallestBeamNumber = 1000;
-			int number = 1000;
+			string cResult = string.Empty;
+			int tempNumber = 1000;
+			int smallestBeamNumber = tempNumber;
+			int number = tempNumber;
 			var beamNumbersInPlan = new List<int>();
-			var beamNumbersInOtherPlans = new List<int>();
-			beamNumbersInOtherPlans = GetBeamNumbersFromOtherPlans(course, plan);
+
+			// neccessary to check if Id is an integer first and find the smallest
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
 				if (Int32.TryParse(beam.Id.Trim(), out number))
@@ -308,62 +310,100 @@ namespace VMS.TPS
 				}
 				else
 				{
-					cResult = " * Check field naming convention \t";
+					cResult = " * Check field naming convention, field ID should be an integer  \t";
 					beamNumbersInPlan.Clear();
 					break;
 				}
 			}
-			//Check that the beam numbers within the plan are consecutive and doesn't exist in other approved or completed plans within the same Course (Retired is ok if revision...)
-			// hmm, failes to check if a number is skipped... however, that should only be done if the plan is approved TODO
-			int i = 0;
-			if (smallestBeamNumber != 1000)
+
+			if (beamNumbersInPlan.Count != 0)
 			{
-				foreach (var n in beamNumbersInPlan.OrderBy(b => b))
+				beamNumbersInPlan = beamNumbersInPlan.OrderBy(b => b).ToList();
+				CheckConsecutiveFieldNumbers(beamNumbersInPlan, smallestBeamNumber, ref cResult);
+				CheckIfBeamNumberUsedInOtherPlans(course, plan, beamNumbersInPlan, ref cResult);
+			}
+
+			return cResult;
+		}
+
+
+		//Check that the beam numbers within the plan are consecutive 
+		private void CheckConsecutiveFieldNumbers(List<int> beamNumbersInPlan, int smallestBeamNumber, ref string cResult)
+		{
+			for (int i = 0; i < beamNumbersInPlan.Count; i++)
+			{
+				if (beamNumbersInPlan[i] == smallestBeamNumber + i)
 				{
-					if (n == smallestBeamNumber + i)
-					{
-						if (beamNumbersInOtherPlans.Contains(n))
-						{
-							cResult = " * Beam number used in other plan  \t";
-							break;	// this might be ok if revision and plan name is the same but with appended revision number
-						}
-						i++;
-					}
-					else
-					{
-						cResult = " * Fields should be consecutively named \t";
-						break;
-					}
+					i++;
+				}
+				else
+				{
+					cResult += " * Fields should be consecutively named \n";
+					break;
 				}
 			}
-			return cResult;
+		}
+
+		// Check that beam number doesn't exist in other approved or completed plans within the same Course (Retired is ok if revision...)
+		// TODO: failes to check if a number is skipped... however, that should only be done if the plan is approved 
+		private void CheckIfBeamNumberUsedInOtherPlans(Course course, PlanSetup plan, List<int> beamNumbersInPlan, ref string cResult)
+		{
+			List<int> beamNumbersInOtherPlans = new List<int>();
+			List<int> beamNumbersUsed = new List<int>();
+			foreach (var ps in course.PlanSetups.Where(p => p.Id != plan.Id))
+            {
+				beamNumbersInOtherPlans = GetBeamNumbersFromOtherPlans(ps);
+				foreach (var n in beamNumbersInPlan)
+                {
+					if (beamNumbersInOtherPlans.Contains(n))
+					{
+						beamNumbersUsed.Add(n);
+					}
+				}
+                if (beamNumbersUsed.Count != 0)
+                {
+					cResult += " * Field ID already used in plan: \t" + ps.Id + " ( ";
+                    foreach (var f in beamNumbersUsed)
+                    {
+						cResult += f.ToString() + ", ";
+					}
+					cResult = cResult.Remove(cResult.Length - 2, 1);
+					cResult += ")\n";
+				}
+				beamNumbersInOtherPlans.Clear();
+				beamNumbersUsed.Clear();
+			}
 		}
 
 		/// <summary>
 		/// Get beam numbers from plans other than "plan" in the same course as "plan"
+		///	TODO: excludes "retired", this might be ok if revision and plan name is the same but with appended revision number
 		/// </summary>
-		/// <param name="course"></param>
 		/// <param name="plan"></param>
 		/// <returns></returns>
-		private static List<int> GetBeamNumbersFromOtherPlans(Course course, PlanSetup plan)
+
+		private List<int> GetBeamNumbersFromOtherPlans(PlanSetup plan)
 		{
 			var beamNumbers = new List<int>();
 			int number = 1000;
-			foreach (var ps in course.PlanSetups.Where(p => p.Id != plan.Id))
-			{
-				if (ps.ApprovalStatus.ToString().Equals("PlanningApproved") || ps.ApprovalStatus.ToString().Equals("TreatmentApproved") || ps.ApprovalStatus.ToString().Equals("Completed") || ps.ApprovalStatus.ToString().Equals("CompletedEarly"))
+
+			if (plan.ApprovalStatus == PlanSetupApprovalStatus.PlanningApproved || plan.ApprovalStatus == PlanSetupApprovalStatus.TreatmentApproved || 
+				plan.ApprovalStatus == PlanSetupApprovalStatus.Completed || plan.ApprovalStatus == PlanSetupApprovalStatus.CompletedEarly)
+            {
+				foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 				{
-					foreach (var beam in ps.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
+					if (Int32.TryParse(beam.Id.Trim(), out number))
 					{
-						if (Int32.TryParse(beam.Id.Trim(), out number))
-						{
-							beamNumbers.Add(number);
-						}
+						beamNumbers.Add(number);
 					}
 				}
-			}
+            }
 			return beamNumbers;
 		}
+
+
+		#endregion Treatment field naming convention
+
 
 		// ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
 
