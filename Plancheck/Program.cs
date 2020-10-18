@@ -20,6 +20,7 @@ using System.CodeDom.Compiler;
 /* TODO: create plan category (enum) and make category specific checks for tbi, sbrt, electron, etc
  * TODO: IsPlanSRT fails if a revision made...
  * TODO Plan sum; foreach plan: check, easier to do in build and wpf...
+ * TODO SBRT kolla body vs skin och om vakumkudde exists
  * */
 
 namespace VMS.TPS
@@ -46,18 +47,21 @@ namespace VMS.TPS
 				string courseId = context.Course.Id;
 
 				string messageTitle = "Quick check on " + courseId + " " + plan.Id + "\n\n";
-								//CheckPlanCategory(plan) +
+				//CheckPlanCategory(plan) +
 				string message =
 				CheckCourseIntent(courseIntent, plan) + "\n" +
 				CheckPlanNamingConvention(plan) +
 				CheckClinProt(plan) +
 				CheckTargetVolumeID(plan, plan.StructureSet) +
 				CheckCouchStructure(plan.StructureSet) +
+				CheckForBolus(plan) +
 				CheckSetupField(plan) + "\n" +
 				//"Treatment fields \n" +
 				//"ID \t Energy \t Tech. \t Drate \t MLC \n" +
 				CheckFieldRules(plan) +
-				CheckFieldNamingConvention(course, plan);
+				CheckFieldNamingConvention(course, plan) +
+				CheckStructureSet(plan) +
+				DeltaShiftFromOrigin(plan);
                 //SimpleCollisionCheck(plan);
 
                 if (message.Length == 0)
@@ -66,9 +70,69 @@ namespace VMS.TPS
                 }
 
 				MessageBox.Show(message, messageTitle);
-
-
 			}
+		}
+
+        private string DeltaShiftFromOrigin(PlanSetup plan)
+        {
+			VVector deltaShift = 10*DeltaShiftInmm(plan, plan.StructureSet.Image.UserOrigin, plan.Beams.First().IsocenterPosition);
+
+			string delta = "\n\niso-Lat: \t" + deltaShift.x.ToString("0.0") + " mm\n";
+			delta += "iso-Vrt: \t" + deltaShift.y.ToString("0.0") + " mm\n";
+			delta += "iso-Lng: \t" + deltaShift.z.ToString("0.0") + " mm\n\n\n";
+			return delta;
+		}
+
+        private VVector DeltaShiftInmm(PlanSetup plan, VVector dicomOriginalPosition, VVector dicomFinalPosition)
+        {
+			Image image = plan.StructureSet.Image;
+			VVector eclipseOriginalPosition = image.DicomToUser(dicomOriginalPosition, plan);
+			VVector eclipseFinalPosition = image.DicomToUser(dicomFinalPosition, plan);
+			VVector deltaShift = eclipseOriginalPosition - eclipseFinalPosition;
+
+			// Have to change sign of Vrt before returning due to difference in coordinate system in Eclipse and the machine
+			deltaShift.y *= -1;
+
+			return deltaShift;
+		}
+
+        private string CheckForBolus(PlanSetup plan)
+        {
+			string cResults = string.Empty;
+			
+			int noOfBoluses = 0;
+			// iterate through all beams in plan, and then all boluses in beam
+            foreach (var beam in plan.Beams)
+            {
+                foreach (var bolus in beam.Boluses)
+                {
+					noOfBoluses += beam.Boluses.Count();
+					cResults += bolus.Id;
+					cResults += bolus.MaterialCTValue.ToString("0.0");
+                }
+            }
+			cResults += "\n* Check if bolus should be linked to all fields. Nr of boluses: " +  noOfBoluses.ToString() + "\n";
+			return cResults;
+        }
+
+
+		// TMI: order plans from head to toe (by isopos in dicom, reverse), check ID numbering
+		// 
+
+        private string CheckStructureSet(PlanSetup plan)
+        {
+			string cResults = string.Empty;
+
+
+			StructureSet ss = plan.StructureSet;
+			Image image = ss.Image;
+			Structure skin = ss.Structures.Where(s => s.Id == "skinn").SingleOrDefault();
+			if (skin == null || skin.IsEmpty)
+			{
+				cResults = "* missing structure Skin \n";
+			}
+			return cResults;
+			// Search for structures obligatory for an SBRT plan
 		}
 
 
@@ -130,33 +194,7 @@ namespace VMS.TPS
 		// TODO: check if this clashes with other properties in VVector   TODO: check if all fields same isocenter
 		// TODO: would be nice if coordinates instead originates from center of image (or center of couch) in Lat, and Couch top surface in Vrt (this would also mean a 
 		// chance to predict/estimate absolute couch coordinates in lat and vrt)
-		public VVector IsoPositionFromTableEnd(PlanSetup plan)
-		{
-			//var image = plan.StructureSet.Image;
-			VVector planIso = plan.Beams.First().IsocenterPosition; // mm from Dicom-origo
-			switch (plan.TreatmentOrientation.ToString())
-			{
-				case "FeetFirstSupine":
-					{
-						planIso.x *= -1;
-						break;
-					}
-				case "FeetFirstProne":
-					{
-						planIso.y *= -1;
-						break;
-					}
-				case "HeadFirstProne":
-					{
-						planIso.x *= -1;
-						planIso.y *= -1;
-						break;
-					}
-				default:
-					break;
-			}
-			return planIso;
-		}
+
 
 		// overloaded method , should keep only one of them and instead check if all beams have the same isocenter
 		public VVector IsoPositionFromTableEnd(Beam beam, string treatOrient)
@@ -352,6 +390,7 @@ namespace VMS.TPS
         // ********* 	Kontroll att numrering av fält är konsekutivt, och att inte fältnumret använts i någon godkänd eller behandlad plan i samma Course *********
         // kollar dock ej om man hoppar över ett nummer mellan planer
         // TODO: recommend beam number change, prereq; need to check plan status and plan ID numbers
+		// OK to to if plan numbers differ
         private string CheckFieldNamingConvention(Course course, PlanSetup plan)
 		{
 			string cResult = string.Empty;
