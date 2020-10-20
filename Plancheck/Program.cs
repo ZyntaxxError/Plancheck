@@ -99,25 +99,52 @@ namespace VMS.TPS
         private string CheckForBolus(PlanSetup plan)
         {
 			string cResults = string.Empty;
-			
+			List<string> bolusList = new List<string>();
+			List<int> bolusListnr = new List<int>();
+			List<double> bolusListHU = new List<double>();
 			int noOfBoluses = 0;
-			// iterate through all beams in plan, and then all boluses in beam
+			int nrOfBeams = plan.Beams.Count();
+			// iterate through all beams in plan, and then all boluses in beams to get all boluses used
             foreach (var beam in plan.Beams)
             {
                 foreach (var bolus in beam.Boluses)
                 {
 					noOfBoluses += beam.Boluses.Count();
-					cResults += bolus.Id;
-					cResults += bolus.MaterialCTValue.ToString("0.0");
+                    if (bolusList.IndexOf(bolus.Id) < 0)
+                    {
+						bolusList.Add(bolus.Id);
+						bolusListnr.Add(1);
+						bolusListHU.Add(bolus.MaterialCTValue);
+					}
+                    else
+                    {
+						bolusListnr[bolusList.IndexOf(bolus.Id)] += 1;
+					}
                 }
             }
-			cResults += "\n* Check if bolus should be linked to all fields. Nr of boluses: " +  noOfBoluses.ToString() + "\n";
+            for (int i = 0; i < bolusList.Count(); i++)
+            {
+                if (bolusListnr[i] != nrOfBeams)
+                {
+					cResults += "* Bolus \"" + bolusList[i] + "\" not linked to all fields, check if this is intended. \n\n";
+				}
+                if (bolusListHU[i] != 0)
+                {
+					cResults += "* Bolus \"" + bolusList[i] + "\" not assigned default HU (assigned " + bolusListHU[i].ToString("0") + " HU instead of expected/default 0 HU), check if this is intended. \n\n";
+				}
+				cResults += CheckBolusNamingConvention(bolusList[i]);
+            }
 			return cResults;
         }
 
+        private string CheckBolusNamingConvention(string boulsID)
+        {
+            throw new NotImplementedException();
+        }
 
-		// TMI: order plans from head to toe (by isopos in dicom, reverse), check ID numbering
-		// 
+
+        // TMI: order plans from head to toe (by isopos in dicom, reverse), check ID numbering
+        // 
 
         private string CheckStructureSet(PlanSetup plan)
         {
