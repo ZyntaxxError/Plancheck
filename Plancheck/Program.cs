@@ -7,7 +7,7 @@
 
 using System;
 using System.Collections.Generic;
-using System.Text;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Linq;
 using VMS.TPS.Common.Model.API;
@@ -96,7 +96,8 @@ namespace VMS.TPS
 			return deltaShift;
 		}
 
-        private string CheckForBolus(PlanSetup plan)
+		// ********* Kontroll av bolus, om kopplat till alla fält, förväntat HU-värde och namngivning  *********
+		private string CheckForBolus(PlanSetup plan)
         {
 			string cResults = string.Empty;
 			List<string> bolusList = new List<string>();
@@ -137,9 +138,49 @@ namespace VMS.TPS
 			return cResults;
         }
 
-        private string CheckBolusNamingConvention(string boulsID)
+        private string CheckBolusNamingConvention(string bolusID)
+		{ 
+
+			string cResults = string.Empty;
+			int bolusThick = 0;
+
+			var bolusThicknessCm = new Regex(@"(\d{1,2})\s?(cm)", RegexOptions.IgnoreCase);
+			var bolusThicknessMm = new Regex(@"(\d{1,2})\s?(mm)", RegexOptions.IgnoreCase);
+			var bolusCTpattern = new Regex(@"ct", RegexOptions.IgnoreCase);
+            if (bolusThicknessCm.IsMatch(bolusID))
+            {
+				Group g = bolusThicknessCm.Match(bolusID).Groups[1];
+				if (Int32.TryParse(g.Value, out bolusThick))
+                {
+					cResults += CheckBolusThickness(bolusThick * 10);
+                }
+            }
+            else if (bolusThicknessMm.IsMatch(bolusID))
+            {
+				Group g = bolusThicknessMm.Match(bolusID).Groups[1];
+				if (Int32.TryParse(g.Value, out bolusThick))
+				{
+					cResults += CheckBolusThickness(bolusThick);
+				}
+            }
+            else if (!bolusCTpattern.IsMatch(bolusID))
+            {
+				cResults += "* Check naming convention of bolus ID: \"" + bolusID + "\"";
+			}
+
+
+            return cResults;
+        }
+
+        private string CheckBolusThickness(int mmBolus)
         {
-            throw new NotImplementedException();
+			string cResults = string.Empty;
+			int[] availableThicknesses = { 3, 5, 8, 10, 13, 15, 18, 20 };
+            if (!availableThicknesses.Contains(mmBolus))
+            {
+				cResults = "* Physical thickness of available boluses are 3, 5 and 10 mm and a combination thereof.";
+			}
+			return cResults;
         }
 
 
