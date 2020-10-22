@@ -144,7 +144,7 @@ namespace VMS.TPS
 			string cResults = string.Empty;
 			int bolusThick = 0;
 
-			var bolusThicknessCm = new Regex(@"(\d{1,2})\s?(cm)", RegexOptions.IgnoreCase);
+			var bolusThicknessCm = new Regex(@"(\d{1}.?\d?)\s?(cm)", RegexOptions.IgnoreCase);
 			var bolusThicknessMm = new Regex(@"(\d{1,2})\s?(mm)", RegexOptions.IgnoreCase);
 			var bolusCTpattern = new Regex(@"ct", RegexOptions.IgnoreCase);
             if (bolusThicknessCm.IsMatch(bolusID))
@@ -165,9 +165,8 @@ namespace VMS.TPS
             }
             else if (!bolusCTpattern.IsMatch(bolusID))
             {
-				cResults += "* Check naming convention of bolus ID: \"" + bolusID + "\"";
+				cResults += "* Check naming convention of bolus ID: \"" + bolusID + "\"\n\n";
 			}
-
 
             return cResults;
         }
@@ -178,7 +177,7 @@ namespace VMS.TPS
 			int[] availableThicknesses = { 3, 5, 8, 10, 13, 15, 18, 20 };
             if (!availableThicknesses.Contains(mmBolus))
             {
-				cResults = "* Physical thickness of available boluses are 3, 5 and 10 mm and a combination thereof.";
+				cResults = "* Physical thickness of available boluses are 3, 5 and 10 mm and a combination thereof. \n\n";
 			}
 			return cResults;
         }
@@ -194,7 +193,7 @@ namespace VMS.TPS
 
 			StructureSet ss = plan.StructureSet;
 			Image image = ss.Image;
-			Structure skin = ss.Structures.Where(s => s.Id == "skinn").SingleOrDefault();
+			Structure skin = ss.Structures.Where(s => s.Id == "Skin").SingleOrDefault();
 			if (skin == null || skin.IsEmpty)
 			{
 				cResults = "* missing structure Skin \n";
