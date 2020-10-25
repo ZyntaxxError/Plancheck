@@ -806,7 +806,7 @@ namespace VMS.TPS
 			return cResults;
 		}
 
-		// ********* 	Kontroll av energi vid Statisk MLC och SRT	*********
+		// ********* 	Kontroll av energi vid Statisk MLC och SBRT	*********
 
 		public string CheckMLCStaticFFF(PlanSetup plan, Beam beam, ref int countMLCStaticFFFRemarks)
 		{
@@ -840,7 +840,7 @@ namespace VMS.TPS
 			string cResults = "";
 			if (countArcDynCollAngleRemarks < 1 && beam.ControlPoints.First().CollimatorAngle > 5.0 && beam.ControlPoints.First().CollimatorAngle < 355.0)
 			{
-				cResults = "** Collimator angle for DynArc should be between +/- 5 deg \n";
+				cResults = "* Collimator angle for DynArc is recommended to be between +/- 5 deg \n";
 				countArcDynCollAngleRemarks++;
 			}
 			return cResults;
