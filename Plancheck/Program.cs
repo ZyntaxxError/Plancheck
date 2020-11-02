@@ -30,25 +30,64 @@ namespace VMS.TPS
 		public Script()
 		{
 		}
+
+		enum PlanCat
+		{
+			SBRT,
+			Electron,
+			CRT,
+			IMRT,
+			TBI,
+			TMI,
+			Mamill,
+			Unknown,	
+			NoPlan
+		}
+
 		public void Execute(ScriptContext context)
 		{
 
-			if (context.Patient == null || context.PlanSetup == null)
+			if ((context.PlanSumsInScope.FirstOrDefault() == null && context.PlanSetup == null) || context.StructureSet == null)
 			{
-				MessageBox.Show("Please select a patient and plan in active context window.");
+                if (context.StructureSet == null)
+                {
+					MessageBox.Show("Please select a plan in the active context window.");
+				}
+                else
+                {
+					StructureSet ss = context.StructureSet;
+					string messageTitle = "Quick check on structure set" + ss.Id;
+					string message = CheckStructureSet(ss) +
+						CheckCouchStructure(ss);
+					MessageBox.Show(message, messageTitle);
+				}
 			}
 			else
 			{
-				Patient patient = context.Patient;
-				Course course = context.Course;
 				PlanSetup plan = context.PlanSetup;
-				//enum planCategory{
+				PlanSum psum = context.PlanSumsInScope.FirstOrDefault();
+				if (psum != null)
+                {
+					CheckPlanSum(psum);
+                } else { 
+
+				
+
+
+
+				Course course = context.Course;
+
+
+
+
+
 				string courseIntent = context.Course.Intent;
 				string courseId = context.Course.Id;
 
 				string messageTitle = "Quick check on " + courseId + " " + plan.Id + "\n\n";
-				//CheckPlanCategory(plan) +
+
 				string message =
+				CheckPlanCategory(plan) +
 				CheckCourseIntent(courseIntent, plan) + "\n" +
 				CheckPlanNamingConvention(plan) +
 				CheckClinProt(plan) +
@@ -60,7 +99,7 @@ namespace VMS.TPS
 				//"ID \t Energy \t Tech. \t Drate \t MLC \n" +
 				CheckFieldRules(plan) +
 				CheckFieldNamingConvention(course, plan) +
-				CheckStructureSet(plan) +
+				CheckStructureSet(plan.StructureSet, PlanCat.SBRT) +
 				DeltaShiftFromOrigin(plan);
                 //SimpleCollisionCheck(plan);
 
@@ -70,25 +109,93 @@ namespace VMS.TPS
                 }
 
 				MessageBox.Show(message, messageTitle);
+				}
 			}
 		}
 
-        private string DeltaShiftFromOrigin(PlanSetup plan)
-        {
-			VVector deltaShift = 10*DeltaShiftInmm(plan, plan.StructureSet.Image.UserOrigin, plan.Beams.First().IsocenterPosition);
+        private void CheckPlanSum(PlanSum psum)
+        {// Only for TMI...
+			string sumPlans = string.Empty;
+            foreach (var plan in psum.PlanSetups.OrderBy(p => p.Id))
+            {
+				sumPlans += plan.Id + "\t\n";
+            }
+			MessageBox.Show(sumPlans);
+		}
 
-			string delta = "\n\niso-Lat: \t" + deltaShift.x.ToString("0.0") + " mm\n";
-			delta += "iso-Vrt: \t" + deltaShift.y.ToString("0.0") + " mm\n";
-			delta += "iso-Lng: \t" + deltaShift.z.ToString("0.0") + " mm\n\n\n";
+        private string CheckPlanCategory(PlanSetup plan)
+		{
+			//PlanCat planCat = PlanCat.Unknown;
+			string cResults = "";
+			if (IsPlanSRT(plan))
+			{
+				cResults = "Running tests assuming this is a SRT plan";
+				//planCat = PlanCat.SBRT;
+			}
+			return cResults;
+		}
+
+
+
+
+
+		/*public void SetPlanCategory(Course course, PlanSetup plan)
+		{
+
+			// first the easy categories
+			PlanCat planCat = PlanCat.SBRT;
+
+
+		}*/
+
+		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering, aning klent men bör fungera) *********
+
+		public bool IsPlanSRT(PlanSetup plan)
+		{
+			bool fractionationSRT = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions >= 5 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 35.0));
+			// missade 7Gy x 5
+			return fractionationSRT;
+		}
+		/*public bool IsPlanElectron(PlanSetup plan)
+		{
+			bool fractionationSRS = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions > 7 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 45.0));
+
+			return fractionationSRS;
+		}*/
+
+
+		private string DeltaShiftFromPlanToPlan(PlanSetup fromPlanIso, PlanSetup toPlanIso)
+		{
+			VVector deltaShift = DeltaShiftIncm(fromPlanIso, fromPlanIso.Beams.First().IsocenterPosition, toPlanIso.Beams.First().IsocenterPosition);
+
+
+			string delta = "iso-Vrt: \t" + deltaShift.y.ToString("0.00") + " cm\t";
+			delta += "iso-Lng: \t" + deltaShift.z.ToString("0.00") + " cm\t";
+			delta += "iso-Lat: \t" + deltaShift.x.ToString("0.00") + " cm\n";
 			return delta;
 		}
 
-        private VVector DeltaShiftInmm(PlanSetup plan, VVector dicomOriginalPosition, VVector dicomFinalPosition)
+
+
+
+
+		private string DeltaShiftFromOrigin(PlanSetup plan)
+        {
+			VVector deltaShift = DeltaShiftIncm(plan, plan.StructureSet.Image.UserOrigin, plan.Beams.First().IsocenterPosition);
+
+
+			string delta = "iso-Vrt: \t" + deltaShift.y.ToString("0.00") + " cm\n";
+			delta += "iso-Lng: \t" + deltaShift.z.ToString("0.00") + " cm\n\n\n";
+			delta += "\n\niso-Lat: \t" + deltaShift.x.ToString("0.00") + " cm\n";
+			return delta;
+		}
+
+        private VVector DeltaShiftIncm(PlanSetup plan, VVector dicomOriginalPosition, VVector dicomFinalPosition)
         {
 			Image image = plan.StructureSet.Image;
 			VVector eclipseOriginalPosition = image.DicomToUser(dicomOriginalPosition, plan);
 			VVector eclipseFinalPosition = image.DicomToUser(dicomFinalPosition, plan);
-			VVector deltaShift = eclipseOriginalPosition - eclipseFinalPosition;
+			VVector deltaShift = (eclipseOriginalPosition - eclipseFinalPosition) / 10;
 
 			// Have to change sign of Vrt before returning due to difference in coordinate system in Eclipse and the machine
 			deltaShift.y *= -1;
@@ -96,8 +203,12 @@ namespace VMS.TPS
 			return deltaShift;
 		}
 
-		// ********* Kontroll av bolus, om kopplat till alla fält, förväntat HU-värde och namngivning  *********
-		private string CheckForBolus(PlanSetup plan)
+        #region Bolus
+
+
+        // ********* Kontroll av bolus, om kopplat till alla fält, förväntat HU-värde och namngivning  *********
+		// kollar enbart bolus kopplat till något fält
+        private string CheckForBolus(PlanSetup plan)
         {
 			string cResults = string.Empty;
 			List<string> bolusList = new List<string>();
@@ -182,16 +293,92 @@ namespace VMS.TPS
 			return cResults;
         }
 
+        #endregion Bolus
+
+
+
+        #region Structure set
 
         // TMI: order plans from head to toe (by isopos in dicom, reverse), check ID numbering
-        // 
+        // search for mask base plate and half spheres in image
 
-        private string CheckStructureSet(PlanSetup plan)
+
+        private string CheckStructureSet(StructureSet ss, PlanCat planCategory)
+		{
+			string cResults = string.Empty;
+			string cAssignedHU = string.Empty;
+			try
+            {
+				foreach (var structure in ss.Structures.Where(s => !s.Id.Contains("Couch")))
+				{
+					cAssignedHU += CheckForAssignedHU(structure);
+				}
+				if (planCategory == PlanCat.SBRT)
+				{
+					cResults += CheckStructureSetSBRT(ss);
+				}
+			}
+            catch (Exception e)
+            {
+				cResults += e;
+			}
+			if (!string.IsNullOrEmpty(cAssignedHU))
+			{
+				cResults += "\nStructures with assigned HU: \n" + cAssignedHU + "\n\n";
+			}
+
+			return cResults;
+		}
+
+		private string CheckStructureSet(StructureSet ss)
+		{
+			string cResults = string.Empty;
+			string cAssignedHU = string.Empty;
+			string cSeparateParts = string.Empty;
+			try
+			{
+				foreach (var structure in ss.Structures.Where(s => !s.Id.Contains("Couch")))
+				{
+					cAssignedHU += CheckForAssignedHU(structure);
+					if (!structure.IsEmpty && structure.GetNumberOfSeparateParts() > 1)
+					{
+						cSeparateParts += string.Format("Structure \t{0} has \t{1} separate parts.\n", structure.Id, structure.GetNumberOfSeparateParts());
+					}
+				}
+			}
+			catch (Exception e)
+			{
+				cResults += e;
+			}
+            if (!string.IsNullOrEmpty(cAssignedHU))
+            {
+				cResults += "Structures with assigned HU: \n\n" + cAssignedHU + "\n\n";
+			}
+			if (!string.IsNullOrEmpty(cSeparateParts))
+			{
+				cResults += "Structures with separate parts: \n\n" + cSeparateParts + "\n\n";
+			}
+			return cResults;
+		}
+
+
+		private string CheckForAssignedHU(Structure structure)
+        {
+			string cResults = string.Empty;
+			double huValue;
+			if (structure.GetAssignedHU(out huValue))
+			{
+				cResults = string.Format("Structure \t{0} has an assigned CT value of \t{1}.\n", structure.Id, huValue);
+			}
+			return cResults;
+		}
+
+        private string CheckStructureSetSBRT(StructureSet ss)
         {
 			string cResults = string.Empty;
 
 
-			StructureSet ss = plan.StructureSet;
+
 			Image image = ss.Image;
 			Structure skin = ss.Structures.Where(s => s.Id == "Skin").SingleOrDefault();
 			if (skin == null || skin.IsEmpty)
@@ -199,72 +386,62 @@ namespace VMS.TPS
 				cResults = "* missing structure Skin \n";
 			}
 			return cResults;
-			// Search for structures obligatory for an SBRT plan
+			// Search for structures mandatory to be included for an SBRT plan, also check if body width equals skin width, in that case probably forgotten to include vacumbag or SBF
 		}
 
 
+		// ********* 	Kontroll av att bordsstruktur existerar, är av rätt typ, inte är tom och har korrekt HU 	********* 
+		// begränsningar: kollar ej positionering i förhållande till body, ej heller att den inte är kapad. Rätt bordstyp kollas enbart på namn
+		// Exact IGRT Couch, thin, medium och thick kan i princip vara korrekt beroende på lokalisation...
 
-
-        /*
-		private string CheckPlanCategory(PlanSetup plan)
+		public string CheckCouchStructure(StructureSet SSet)
 		{
-			string cResults = "";
-			if (IsPlanSRT(plan))
+			string cResult = "";
+			bool couchExt = false;
+			bool couchInt = false;
+			foreach (Structure s in SSet.Structures)
 			{
-				cResults = "Running tests assuming this is a SRT plan";
+				if (s.Id.Contains("CouchSurf") && !s.IsEmpty && s.Name.Contains("Exact IGRT Couch") && s.DicomType == "SUPPORT")
+				{
+					double couchExtHU;
+					s.GetAssignedHU(out couchExtHU);
+					if (Math.Round(couchExtHU) == -300)
+					{
+						couchExt = true;
+					}
+				}
+				if (s.Id.Contains("CouchInt") && !s.IsEmpty && s.Name.Contains("Exact IGRT Couch") && s.DicomType == "SUPPORT")
+				{
+					double couchIntHU;
+					s.GetAssignedHU(out couchIntHU);
+					if (Math.Round(couchIntHU) == -1000)
+					{
+						couchInt = true;
+					}
+				}
 			}
-			return cResults;
+			if (!couchExt || !couchInt)
+			{
+				cResult = "** Check couch structure! \n";
+			}
+			return cResult;
 		}
 
-		enum PlanCat
-		{
-			SBRT,
-			Electron,
-			CRT,
-			IMRT,
-			TBI,
-			TMI,
-		Mamill,
-			Unknown
-		}
 
-		PlanCat planCat = PlanCat.SBRT;
-		*/
-        public void SetPlanCategory(Course course, PlanSetup plan)
-		{
-			// first the easy categories
+
+        #endregion
 
 
 
-		}
-
-		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering, aning klent men bör fungera) *********
-
-		public bool IsPlanSRT(PlanSetup plan)
-		{
-			bool fractionationSRT = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions >= 5 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 35.0));
-			// missade 7Gy x 5
-			return fractionationSRT;
-		}
-		/*public bool IsPlanElectron(PlanSetup plan)
-		{
-			bool fractionationSRS = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions > 7 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 45.0));
-
-			return fractionationSRS;
-		}*/
+        // ********* Helper method for checking iso coordinates, returns VVector  
+        // transforms coordinates from dicom to coordinates based on coronal view from table end, dicom-origo the same (usually center of image in Lat, below table in vrt)
+        // TODO: check if this clashes with other properties in VVector   TODO: check if all fields same isocenter
+        // TODO: would be nice if coordinates instead originates from center of image (or center of couch) in Lat, and Couch top surface in Vrt (this would also mean a 
+        // chance to predict/estimate absolute couch coordinates in lat and vrt)
 
 
-
-
-		// ********* Helper method for checking iso coordinates, returns VVector  
-		// transforms coordinates from dicom to coordinates based on coronal view from table end, dicom-origo the same (usually center of image in Lat, below table in vrt)
-		// TODO: check if this clashes with other properties in VVector   TODO: check if all fields same isocenter
-		// TODO: would be nice if coordinates instead originates from center of image (or center of couch) in Lat, and Couch top surface in Vrt (this would also mean a 
-		// chance to predict/estimate absolute couch coordinates in lat and vrt)
-
-
-		// overloaded method , should keep only one of them and instead check if all beams have the same isocenter
-		public VVector IsoPositionFromTableEnd(Beam beam, string treatOrient)
+        // overloaded method , should keep only one of them and instead check if all beams have the same isocenter
+        public VVector IsoPositionFromTableEnd(Beam beam, string treatOrient)
 		{
 			VVector beamIso = beam.IsocenterPosition; // mm from Dicom-origo
 			switch (treatOrient)
@@ -414,42 +591,7 @@ namespace VMS.TPS
 		}
 
 
-        // ********* 	Kontroll av att bordsstruktur existerar, är av rätt typ, inte är tom och har korrekt HU 	********* 
-        // begränsningar: kollar ej positionering i förhållande till body, ej heller att den inte är kapad. Rätt bordstyp kollas enbart på namn
-        // Exact IGRT Couch, thin, medium och thick kan i princip vara korrekt beroende på lokalisation...
 
-        public string CheckCouchStructure(StructureSet SSet)
-		{
-			string cResult = "";
-			bool couchExt = false;
-			bool couchInt = false;
-			foreach (Structure s in SSet.Structures)
-			{
-				if (s.Id.Contains("CouchSurf") && !s.IsEmpty && s.Name.Contains("Exact IGRT Couch") && s.DicomType == "SUPPORT")
-				{
-					double couchExtHU;
-					s.GetAssignedHU(out couchExtHU);
-					if (Math.Round(couchExtHU) == -300)
-					{
-						couchExt = true;
-					}
-				}
-				if (s.Id.Contains("CouchInt") && !s.IsEmpty && s.Name.Contains("Exact IGRT Couch") && s.DicomType == "SUPPORT")
-				{
-					double couchIntHU;
-					s.GetAssignedHU(out couchIntHU);
-					if (Math.Round(couchIntHU) == -1000)
-					{
-						couchInt = true;
-					}
-				}
-			}
-			if (!couchExt || !couchInt)
-			{
-				cResult = "** Check couch structure! \n";
-			}
-			return cResult;
-		}
 
 
         #region Treatment field naming convention
