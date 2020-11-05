@@ -65,21 +65,15 @@ namespace VMS.TPS
 			else
 			{
 				PlanSetup plan = context.PlanSetup;
+				PlanCat planCat = CheckPlanCategory(plan);
 				PlanSum psum = context.PlanSumsInScope.FirstOrDefault();
 				if (psum != null)
                 {
 					CheckPlanSum(psum);
                 } else { 
 
-				
-
-
-
+			
 				Course course = context.Course;
-
-
-
-
 
 				string courseIntent = context.Course.Intent;
 				string courseId = context.Course.Id;
@@ -87,7 +81,7 @@ namespace VMS.TPS
 				string messageTitle = "Quick check on " + courseId + " " + plan.Id + "\n\n";
 
 				string message =
-				CheckPlanCategory(plan) +
+
 				CheckCourseIntent(courseIntent, plan) + "\n" +
 				CheckPlanNamingConvention(plan) +
 				CheckClinProt(plan) +
@@ -99,7 +93,7 @@ namespace VMS.TPS
 				//"ID \t Energy \t Tech. \t Drate \t MLC \n" +
 				CheckFieldRules(plan) +
 				CheckFieldNamingConvention(course, plan) +
-				CheckStructureSet(plan.StructureSet, PlanCat.SBRT) +
+				CheckStructureSet(plan.StructureSet, planCat) +
 				DeltaShiftFromOrigin(plan);
                 //SimpleCollisionCheck(plan);
 
@@ -123,16 +117,16 @@ namespace VMS.TPS
 			MessageBox.Show(sumPlans);
 		}
 
-        private string CheckPlanCategory(PlanSetup plan)
+        private PlanCat CheckPlanCategory(PlanSetup plan)
 		{
-			//PlanCat planCat = PlanCat.Unknown;
-			string cResults = "";
+			PlanCat planCat = PlanCat.Unknown;
+
 			if (IsPlanSRT(plan))
 			{
-				cResults = "Running tests assuming this is a SRT plan";
-				//planCat = PlanCat.SBRT;
+
+				planCat = PlanCat.SBRT;
 			}
-			return cResults;
+			return planCat;
 		}
 
 
@@ -184,9 +178,9 @@ namespace VMS.TPS
 			VVector deltaShift = DeltaShiftIncm(plan, plan.StructureSet.Image.UserOrigin, plan.Beams.First().IsocenterPosition);
 
 
-			string delta = "iso-Vrt: \t" + deltaShift.y.ToString("0.00") + " cm\n";
-			delta += "iso-Lng: \t" + deltaShift.z.ToString("0.00") + " cm\n\n\n";
-			delta += "\n\niso-Lat: \t" + deltaShift.x.ToString("0.00") + " cm\n";
+			string delta = "\niso-Vrt: \t" + deltaShift.y.ToString("0.00") + " cm\n";
+			delta += "iso-Lng: \t" + deltaShift.z.ToString("0.00") + " cm\n";
+			delta += "iso-Lat: \t" + deltaShift.x.ToString("0.00") + " cm\n\n";
 			return delta;
 		}
 
@@ -340,10 +334,14 @@ namespace VMS.TPS
 				foreach (var structure in ss.Structures.Where(s => !s.Id.Contains("Couch")))
 				{
 					cAssignedHU += CheckForAssignedHU(structure);
-					if (!structure.IsEmpty && structure.GetNumberOfSeparateParts() > 1)
-					{
-						cSeparateParts += string.Format("Structure \t{0} has \t{1} separate parts.\n", structure.Id, structure.GetNumberOfSeparateParts());
+                    if (!structure.IsEmpty && structure.HasSegment)
+                    {
+						if (structure.GetNumberOfSeparateParts() > 1)
+						{
+							cSeparateParts += string.Format("Structure \t{0} has \t{1} separate parts.\n", structure.Id, structure.GetNumberOfSeparateParts());
+						}
 					}
+
 				}
 			}
 			catch (Exception e)
@@ -384,7 +382,12 @@ namespace VMS.TPS
 			if (skin == null || skin.IsEmpty)
 			{
 				cResults = "* missing structure Skin \n";
-			}
+            }
+            else
+            {
+				// check that body is larger than Skin, at least in iso pos (z)
+
+            }
 			return cResults;
 			// Search for structures mandatory to be included for an SBRT plan, also check if body width equals skin width, in that case probably forgotten to include vacumbag or SBF
 		}
@@ -860,10 +863,13 @@ namespace VMS.TPS
 			int countArcDynCollAngleRemarks = 0;        // The collimator angle should be between +/-5 deg if dynamic arc used
 			int countArcCW = 0;
 			int countArcCCW = 0;                        // the absolute difference between CW and CCW should be less than two...
+			double beamOnTimeInSec = 0;
 
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
-				cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\n";
+				cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\t";
+				cResults += Math.Round(GetVmatEstimatedBeamOnTime(beam)).ToString("0") + " s\t" + "\n";
+				beamOnTimeInSec += GetVmatEstimatedBeamOnTime(beam);
 				if (!beam.Technique.Id.Contains("SRS") && IsPlanSRT(plan))
 				{
 					if (countSRSRemarks < 1) { remarks = remarks + "** Change technique to SRS-" + beam.Technique.Id + "! \n"; };
@@ -900,11 +906,51 @@ namespace VMS.TPS
 			{
 				remarks += "** Check the arc directions! \t";
 			}
-			return cResults + "\n" + remarks;
+			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n" + remarks;
 		}
 
-		// ********* 	Enkel kontroll av eventuell kollisionsrisk, enbart planara setupfält	*********
-		/*private string SimpleCollisionCheck(PlanSetup plan)
+        private double GetVmatEstimatedBeamOnTime(Beam beam)
+        {
+			double time = 0;
+			int maxDoseRate = beam.DoseRate / 60;
+			double totalMU = beam.Meterset.Value;
+			int gantryMaxSpeed = 6;
+
+
+            for (int i = 1; i < beam.ControlPoints.Count(); i++)
+            {
+				double deltaGantry = Math.Abs(beam.ControlPoints[i].GantryAngle - beam.ControlPoints[i-1].GantryAngle);
+				double deltaMU = totalMU * (beam.ControlPoints[i].MetersetWeight - beam.ControlPoints[i - 1].MetersetWeight);
+				if (deltaGantry > 350)
+                {
+                    if (beam.ControlPoints[i].GantryAngle < beam.ControlPoints[i - 1].GantryAngle)
+                    {
+						deltaGantry = Math.Abs(beam.ControlPoints[i].GantryAngle + 360 - beam.ControlPoints[i - 1].GantryAngle);
+					}
+                    else
+                    {
+						deltaGantry = Math.Abs(beam.ControlPoints[i].GantryAngle - (beam.ControlPoints[i - 1].GantryAngle + 360));
+					}
+				}
+				double timeIfMaxGantrySpeed = deltaGantry / gantryMaxSpeed;		// s
+				double doseRateMaxGantrySpeed = deltaMU / timeIfMaxGantrySpeed; // mu/s
+				if (doseRateMaxGantrySpeed > maxDoseRate)
+                {
+					time += deltaMU / maxDoseRate;
+                }
+                else
+                {
+					time += deltaMU / doseRateMaxGantrySpeed;
+				}
+            }
+			
+			return time;
+
+
+        }
+
+        // ********* 	Enkel kontroll av eventuell kollisionsrisk, enbart planara setupfält	*********
+        /*private string SimpleCollisionCheck(PlanSetup plan)
 		{
 			string cResults = "";
             if (IsoPositionFromTableEnd(plan).x < -40 && )
@@ -918,9 +964,9 @@ namespace VMS.TPS
 		}*/
 
 
-		// ********* 	Kontroll av dosrat vid FFF	*********
+        // ********* 	Kontroll av dosrat vid FFF	*********
 
-		public string CheckDoseRateFFF(Beam beam, ref int countDoseRateFFFRemarks)
+        public string CheckDoseRateFFF(Beam beam, ref int countDoseRateFFFRemarks)
 		{
 			string cResults = "";
 
