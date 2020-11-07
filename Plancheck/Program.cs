@@ -80,21 +80,22 @@ namespace VMS.TPS
 
 				string messageTitle = "Quick check on " + courseId + " " + plan.Id + "\n\n";
 
-				string message =
+					string message =
 
-				CheckCourseIntent(courseIntent, plan) + "\n" +
-				CheckPlanNamingConvention(plan) +
-				CheckClinProt(plan) +
-				CheckTargetVolumeID(plan, plan.StructureSet) +
-				CheckCouchStructure(plan.StructureSet) +
-				CheckForBolus(plan) +
-				CheckSetupField(plan) + "\n" +
-				//"Treatment fields \n" +
-				//"ID \t Energy \t Tech. \t Drate \t MLC \n" +
-				CheckFieldRules(plan) +
-				CheckFieldNamingConvention(course, plan) +
-				CheckStructureSet(plan.StructureSet, planCat) +
-				DeltaShiftFromOrigin(plan);
+					CheckCourseIntent(courseIntent, plan) + "\n" +
+					CheckPlanNamingConvention(plan) +
+					CheckClinProt(plan) +
+					CheckTargetVolumeID(plan, plan.StructureSet) +
+					CheckSRTCtvPtvPlanNumbering(plan, planCat) +
+					CheckCouchStructure(plan.StructureSet) +
+					CheckForBolus(plan) +
+					CheckSetupField(plan) + "\n" +
+					//"Treatment fields \n" +
+					//"ID \t Energy \t Tech. \t Drate \t MLC \n" +
+					CheckFieldRules(plan) +
+					CheckFieldNamingConvention(course, plan) +
+					CheckStructureSet(plan.StructureSet, planCat); 
+				//DeltaShiftFromOrigin(plan);
                 //SimpleCollisionCheck(plan);
 
                 if (message.Length == 0)
@@ -107,6 +108,34 @@ namespace VMS.TPS
 			}
 		}
 
+        private string CheckSRTCtvPtvPlanNumbering(PlanSetup plan, PlanCat planCat)
+        {
+			string cResults = string.Empty;
+			StructureSet ss = plan.StructureSet;
+			int number;
+
+			// check that CTV, PTV and Plan numbering is consistent, only nesessary if more than one PTV
+			// PTV from plans target volume, ctv from PTV number and check that mass center is within respective PTV boundaries
+			// Plan numbering not necessarily consistent with PTV if multiple structure sets used in same course 
+			if (!string.IsNullOrEmpty(plan.TargetVolumeID) && planCat == PlanCat.SBRT)
+			{
+				// Search for structure in structure set with same id as target volume and checks if type is PTV, defaults to null if criteria not met
+				Structure ptv = ss.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV").SingleOrDefault();
+				// Check if more than one PTV exists
+				int nrOfPTV = ss.Structures.Where(s => s.Id.Substring(0, 3) == "PTV").Where(s => s.DicomType == "PTV").Count();
+				if (ptv != null && Int32.TryParse(ptv.Id.Substring(3, 1), out number) && nrOfPTV >1)
+				{
+					//Structure ctv = ss.Structures.Where(s => s.Id.Substring(0, 4) == ("CTV" + ptv.Id.Substring(3, 1))).Where(s => s.DicomType == "CTV").SingleOrDefault();
+                    if (plan.Id.Substring(1,1) != ptv.Id.Substring(3,1))
+                    {
+						cResults += "* Plan ID number not consistent with PTV ID number, check if this is ok";
+                    }
+					//cResults = "Plan,PTV and CTV \t" + plan.Id + "\t" + ptv.Id + "\t" + ctv.Id + "\t" + nrOfPTV + "\n";
+                }
+			}
+			return cResults + "\n";
+		}
+		
         private void CheckPlanSum(PlanSum psum)
         {// Only for TMI...
 			string sumPlans = string.Empty;
@@ -150,15 +179,16 @@ namespace VMS.TPS
 			// missade 7Gy x 5
 			return fractionationSRT;
 		}
-		/*public bool IsPlanElectron(PlanSetup plan)
+        /*public bool IsPlanElectron(PlanSetup plan)
 		{
 			bool fractionationSRS = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions > 7 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 45.0));
 
 			return fractionationSRS;
 		}*/
 
+        #region delta shift
 
-		private string DeltaShiftFromPlanToPlan(PlanSetup fromPlanIso, PlanSetup toPlanIso)
+        private string DeltaShiftFromPlanToPlan(PlanSetup fromPlanIso, PlanSetup toPlanIso)
 		{
 			VVector deltaShift = DeltaShiftIncm(fromPlanIso, fromPlanIso.Beams.First().IsocenterPosition, toPlanIso.Beams.First().IsocenterPosition);
 
@@ -197,12 +227,14 @@ namespace VMS.TPS
 			return deltaShift;
 		}
 
-        #region Bolus
+		#endregion
+
+		#region Bolus
 
 
-        // ********* Kontroll av bolus, om kopplat till alla fält, förväntat HU-värde och namngivning  *********
+		// ********* Kontroll av bolus, om kopplat till alla fält, förväntat HU-värde och namngivning  *********
 		// kollar enbart bolus kopplat till något fält
-        private string CheckForBolus(PlanSetup plan)
+		private string CheckForBolus(PlanSetup plan)
         {
 			string cResults = string.Empty;
 			List<string> bolusList = new List<string>();
@@ -356,7 +388,44 @@ namespace VMS.TPS
 			{
 				cResults += "Structures with separate parts: \n\n" + cSeparateParts + "\n\n";
 			}
+
+
+			// attemnt to roughly estimate CTV to PTV margin
+			// Search for structure in structure set with same id as target volume and checks if type is PTV, defaults to null if criteria not met
+			List<Structure> ptvList = ss.Structures.Where(s => s.Id.Substring(0,3) == "PTV").Where(s => s.DicomType == "PTV").ToList();
+            // Check if more than one PTV exists
+
+            foreach (var ptv in ptvList)
+            {
+				if (ptvList != null)
+				{
+					Structure ctv = ss.Structures.Where(s => s.Id.Substring(1, s.Id.Length - 1) == ptv.Id.Substring(1, ptv.Id.Length - 1)).Where(s => s.DicomType == "CTV").SingleOrDefault();
+					//Structure ctv = ss.Structures.Where(s => s.Id.Substring(1, s.Id.Length - 1) == ptv.Id.Substring(1, ptv.Id.Length - 1)).SingleOrDefault();
+					// unfortunately are some ctv in clinical protocol dicomType avoid...
+					// strongle depends of exactly inentical naming, can perhaps compare mass centrum or bounds contain?
+					if (ctv != null)
+					{
+						double deltaX = Math.Round(ptv.MeshGeometry.Bounds.SizeX - ctv.MeshGeometry.Bounds.SizeX)/2;
+						double deltaY = Math.Round(ptv.MeshGeometry.Bounds.SizeY - ctv.MeshGeometry.Bounds.SizeY)/2;
+						double deltaZ = Math.Round(ptv.MeshGeometry.Bounds.SizeZ - ctv.MeshGeometry.Bounds.SizeZ)/2;
+						cResults += ptv.Id + ": X: " + deltaX.ToString("0") + " X: " + deltaY.ToString("0") + " X: " + deltaZ.ToString("0") + "\n";
+					}
+                    else
+                    {
+						cResults += ptv.Id + ": can not identify corresponding CTV.\n";
+					}
+					//cResults = "Plan,PTV and CTV \t" + plan.Id + "\t" + ptv.Id + "\t" + ctv.Id + "\t" + nrOfPTV + "\n";
+				}
+
+			}
+
+
+
+
+
+
 			return cResults;
+
 		}
 
 
@@ -375,9 +444,12 @@ namespace VMS.TPS
         {
 			string cResults = string.Empty;
 
-
-
 			Image image = ss.Image;
+            if (image.ZRes > 2)
+            {
+				cResults += "* Image slice thickness is " + image.ZRes.ToString("0.0") + " mm. Check if this is ok for this SBRT case.\n";
+
+			}
 			Structure skin = ss.Structures.Where(s => s.Id == "Skin").SingleOrDefault();
 			if (skin == null || skin.IsEmpty)
 			{
@@ -385,9 +457,13 @@ namespace VMS.TPS
             }
             else
             {
-				// check that body is larger than Skin, at least in iso pos (z)
+				double ksahfd = skin.MeshGeometry.Bounds.SizeX;
 
-            }
+				// check that body is larger than Skin, at least in iso pos (z)
+				cResults += "* BOUNDS X of Skin: " + ksahfd.ToString("0.0") + "\n";
+
+
+			}
 			return cResults;
 			// Search for structures mandatory to be included for an SBRT plan, also check if body width equals skin width, in that case probably forgotten to include vacumbag or SBF
 		}
