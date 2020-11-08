@@ -15,6 +15,7 @@ using VMS.TPS.Common.Model.Types;
 using System.IO;
 using System.Diagnostics;
 using System.CodeDom.Compiler;
+using System.Collections;
 
 
 /* TODO: create plan category (enum) and make category specific checks for tbi, sbrt, electron, etc
@@ -94,7 +95,7 @@ namespace VMS.TPS
 					//"ID \t Energy \t Tech. \t Drate \t MLC \n" +
 					CheckFieldRules(plan) +
 					CheckFieldNamingConvention(course, plan) +
-					CheckStructureSet(plan.StructureSet, planCat); 
+					CheckStructureSet(plan, planCat); 
 				//DeltaShiftFromOrigin(plan);
                 //SimpleCollisionCheck(plan);
 
@@ -329,8 +330,9 @@ namespace VMS.TPS
         // search for mask base plate and half spheres in image
 
 
-        private string CheckStructureSet(StructureSet ss, PlanCat planCategory)
+        private string CheckStructureSet(PlanSetup plan, PlanCat planCategory)
 		{
+			StructureSet ss = plan.StructureSet;
 			string cResults = string.Empty;
 			string cAssignedHU = string.Empty;
 			try
@@ -341,7 +343,7 @@ namespace VMS.TPS
 				}
 				if (planCategory == PlanCat.SBRT)
 				{
-					cResults += CheckStructureSetSBRT(ss);
+					cResults += CheckStructureSetSBRT(plan);
 				}
 			}
             catch (Exception e)
@@ -393,30 +395,43 @@ namespace VMS.TPS
 			// attemnt to roughly estimate CTV to PTV margin
 			// Search for structure in structure set with same id as target volume and checks if type is PTV, defaults to null if criteria not met
 			List<Structure> ptvList = ss.Structures.Where(s => s.Id.Substring(0,3) == "PTV").Where(s => s.DicomType == "PTV").ToList();
-            // Check if more than one PTV exists
-
-            foreach (var ptv in ptvList)
-            {
-				if (ptvList != null)
+			// Check if more than one PTV exists
+			if (ptvList != null)
+			{
+				cResults += "Estimation of CTV to PTV margin by comparing outer bounds of respective structure:\n";
+				foreach (var ptv in ptvList)
 				{
-					Structure ctv = ss.Structures.Where(s => s.Id.Substring(1, s.Id.Length - 1) == ptv.Id.Substring(1, ptv.Id.Length - 1)).Where(s => s.DicomType == "CTV").SingleOrDefault();
+					Structure ctv = ss.Structures.Where(s => ptv.Id.Contains(s.Id.Substring(1, s.Id.Length - 1))).Where(s => s.DicomType == "CTV").SingleOrDefault();
+					//Structure ctv = ss.Structures.Where(s => ptv.Id.Contains(s.Id.Substring(1, s.Id.Length - 1))).SingleOrDefault();
+					bool correctCTV = true;
+					if (ctv == null)
+                    {
+						ctv = ss.Structures.Where(s => s.Id.Substring(0, 3) == "CTV").Where(s => (s.CenterPoint - ptv.CenterPoint).Length < 5).Where(s => ptv.MeshGeometry.Bounds.Contains(s.MeshGeometry.Bounds)).SingleOrDefault();
+					} 
+					else
+                    {
+                        // if identical ID, check that PTV actually contains CTV 
+                        if ((ctv.CenterPoint - ptv.CenterPoint).Length > 5 || !ptv.MeshGeometry.Bounds.Contains(ctv.MeshGeometry.Bounds))
+                        {
+							//ctv = null; Won't allow this
+							correctCTV = false;
+                        }
+                    }
 					//Structure ctv = ss.Structures.Where(s => s.Id.Substring(1, s.Id.Length - 1) == ptv.Id.Substring(1, ptv.Id.Length - 1)).SingleOrDefault();
 					// unfortunately are some ctv in clinical protocol dicomType avoid...
-					// strongle depends of exactly inentical naming, can perhaps compare mass centrum or bounds contain?
-					if (ctv != null)
+					// strongle depends of exactly identical naming, can perhaps compare mass centrum or bounds contain?
+					if (ctv != null && correctCTV)
 					{
-						double deltaX = Math.Round(ptv.MeshGeometry.Bounds.SizeX - ctv.MeshGeometry.Bounds.SizeX)/2;
-						double deltaY = Math.Round(ptv.MeshGeometry.Bounds.SizeY - ctv.MeshGeometry.Bounds.SizeY)/2;
-						double deltaZ = Math.Round(ptv.MeshGeometry.Bounds.SizeZ - ctv.MeshGeometry.Bounds.SizeZ)/2;
-						cResults += ptv.Id + ": X: " + deltaX.ToString("0") + " X: " + deltaY.ToString("0") + " X: " + deltaZ.ToString("0") + "\n";
+						double deltaX = Math.Round(ptv.MeshGeometry.Bounds.SizeX+0.5 - ctv.MeshGeometry.Bounds.SizeX) / 2;
+						double deltaY = Math.Round(ptv.MeshGeometry.Bounds.SizeY+0.5 - ctv.MeshGeometry.Bounds.SizeY) / 2;
+						double deltaZ = Math.Round(ptv.MeshGeometry.Bounds.SizeZ - ctv.MeshGeometry.Bounds.SizeZ) / 2;
+						cResults += ctv.Id + " -> " + ptv.Id + ":\t\tx: " + deltaX.ToString("0") + "\ty: " + deltaY.ToString("0") + "\tz: " + deltaZ.ToString("0") + "\n";
 					}
                     else
-                    {
-						cResults += ptv.Id + ": can not identify corresponding CTV.\n";
+					{
+						cResults += ctv.Id + " -> " + ptv.Id + ":\t can not identify corresponding CTV.\n";
 					}
-					//cResults = "Plan,PTV and CTV \t" + plan.Id + "\t" + ptv.Id + "\t" + ctv.Id + "\t" + nrOfPTV + "\n";
 				}
-
 			}
 
 
@@ -440,8 +455,9 @@ namespace VMS.TPS
 			return cResults;
 		}
 
-        private string CheckStructureSetSBRT(StructureSet ss)
+        private string CheckStructureSetSBRT(PlanSetup plan)
         {
+			StructureSet ss = plan.StructureSet;
 			string cResults = string.Empty;
 
 			Image image = ss.Image;
@@ -457,10 +473,32 @@ namespace VMS.TPS
             }
             else
             {
-				double ksahfd = skin.MeshGeometry.Bounds.SizeX;
+
 
 				// check that body is larger than Skin, at least in iso pos (z)
-				cResults += "* BOUNDS X of Skin: " + ksahfd.ToString("0.0") + "\n";
+				// Could use bounds but that assumes that skin is contured for whole body 
+				// Instead use profile
+				// startpoint; isocenter long and lat, vrt bottom of bounding box for total body
+
+				// If vacum bag, could be thin in bottom, better get a profile also in lateral direction
+
+				Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type
+				double bodyVrtMin = body.MeshGeometry.Bounds.Y + body.MeshGeometry.Bounds.SizeY;
+
+				VVector endPoint = plan.Beams.FirstOrDefault().IsocenterPosition;
+				VVector startPoint = endPoint;
+				startPoint.y = bodyVrtMin;
+				
+
+				var bodyProf = body.GetSegmentProfile(startPoint, endPoint, new BitArray(100));
+				var skinProf = skin.GetSegmentProfile(startPoint, endPoint, new BitArray(100));
+
+				int bodyInside = bodyProf.Where(x => x.Value == true).Count();
+				int skinInside = skinProf.Where(x => x.Value == true).Count();
+
+
+				cResults += "* BODY: " + bodyInside + "\tSKIN: " + skinInside + "\n";
+
 
 
 			}
