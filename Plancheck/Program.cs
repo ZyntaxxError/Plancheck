@@ -461,7 +461,7 @@ namespace VMS.TPS
 			string cResults = string.Empty;
 
 			Image image = ss.Image;
-            if (image.ZRes > 2)
+            if (image.ZRes > 2.5)
             {
 				cResults += "* Image slice thickness is " + image.ZRes.ToString("0.0") + " mm. Check if this is ok for this SBRT case.\n";
 
@@ -490,20 +490,15 @@ namespace VMS.TPS
 				startPoint.y = bodyVrtMin;
 				
 
-				var bodyProf = body.GetSegmentProfile(startPoint, endPoint, new BitArray(100));
-				var skinProf = skin.GetSegmentProfile(startPoint, endPoint, new BitArray(100));
+				var bodyEntrance = body.GetSegmentProfile(startPoint, endPoint, new BitArray(100)).Where(x => x.Value == true).First();
+				var skinEntrance = skin.GetSegmentProfile(startPoint, endPoint, new BitArray(100)).Where(x => x.Value == true).First();
 
-				int bodyInside = bodyProf.Where(x => x.Value == true).Count();
-				int skinInside = skinProf.Where(x => x.Value == true).Count();
-
-
-				cResults += "* BODY: " + bodyInside + "\tSKIN: " + skinInside + "\n";
-
-
-
+                if (bodyEntrance.Position.y <= skinEntrance.Position.y + 3)
+                {
+					cResults += "\n* Check if there are any fixation devices that should be included in the BODY structure.\n";
+                }
 			}
 			return cResults;
-			// Search for structures mandatory to be included for an SBRT plan, also check if body width equals skin width, in that case probably forgotten to include vacumbag or SBF
 		}
 
 
@@ -1020,7 +1015,7 @@ namespace VMS.TPS
 			{
 				remarks += "** Check the arc directions! \t";
 			}
-			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n" + remarks;
+			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n\n" + remarks;
 		}
 
         private double GetVmatEstimatedBeamOnTime(Beam beam)
