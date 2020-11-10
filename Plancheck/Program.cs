@@ -450,7 +450,7 @@ namespace VMS.TPS
 			double huValue;
 			if (structure.GetAssignedHU(out huValue))
 			{
-				cResults = string.Format("Structure \t{0} has an assigned CT value of \t{1}.\n", structure.Id, huValue);
+				cResults = string.Format("{0} has an assigned CT value of \t{1} HU\n", structure.Id, huValue);
 			}
 			return cResults;
 		}
@@ -636,10 +636,10 @@ namespace VMS.TPS
 			else
 			{
 				// Search for structure in structure set with same id as target volume and checks if type is PTV, defaults to null if criteria not met
-				Structure target = sSet.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV").SingleOrDefault();
+				Structure target = sSet.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV" || s.Id.Contains("(fg)")).SingleOrDefault();
 				if (target == null)
 				{
-					cResults = "* Plan target volume should be of type PTV (ignore this if only field limits drawn) \n";
+					cResults = "* Plan target volume should be of type PTV. \n";
 				}
 				else
 				{
@@ -866,6 +866,18 @@ namespace VMS.TPS
 			{
 				cResults = cResults + "missing!" + "\t \t" + "** Insert Setup field" + "\n";
 			}
+			// If case there is only one planar setup field: If treatment angle != 0 or 180, error, else reminder to either use catalyst or add a second setup field
+			if (plan.Beams.Where(b => b.IsSetupField == true).Where(b => !b.Id.Contains("CBCT")).Count() == 1)
+			{
+                if (plan.Beams.Where(b => b.IsSetupField == false).Where(b => !b.ControlPoints.FirstOrDefault().GantryAngle.Equals(0.0) && !b.ControlPoints.FirstOrDefault().GantryAngle.Equals(180.0)).Count() > 0)
+                {
+					cResults += "* Only one planar setup field found. Add an orthogonal setup field for kV/kV matching.\n";
+                }
+                else
+                {
+					cResults += " Only one planar setup field found, remember to add Catalyst for setup (or add another setup field).\n";
+				}
+			}
 			return cResults;
 		}
 
@@ -878,6 +890,7 @@ namespace VMS.TPS
 			int gantryAngleInBeamID = 1000;                         // dummy number
 			int latLimitForCollisionCheck = 40;
 			int test = 1000;
+			// check for naming according to gantry angle
 			for (int i = 1; i < trimmedID.Length + 1; i++)
 			{
 				if (Int32.TryParse(trimmedID.Substring(0, i), out test))                    //  step up one char at a time and try parsing it to int. If successful assign it to gantryAngleInBeamID
@@ -885,6 +898,11 @@ namespace VMS.TPS
 					gantryAngleInBeamID = test;
 				}
 			}
+
+
+
+
+			// simple collision check
 			if (gantryAngleInBeamID != 1000)
 			{
 				if (gantryAngleInBeamID == Math.Round(beam.ControlPoints.First().GantryAngle))
@@ -1024,7 +1042,6 @@ namespace VMS.TPS
 			int maxDoseRate = beam.DoseRate / 60;
 			double totalMU = beam.Meterset.Value;
 			int gantryMaxSpeed = 6;
-
 
             for (int i = 1; i < beam.ControlPoints.Count(); i++)
             {
