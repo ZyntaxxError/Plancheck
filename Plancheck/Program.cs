@@ -19,9 +19,9 @@ using System.Collections;
 
 
 /* TODO: create plan category (enum) and make category specific checks for tbi, sbrt, electron, etc
- * TODO: IsPlanSRT fails if a revision made...
+ * TODO: 
  * TODO Plan sum; foreach plan: check, easier to do in build and wpf...
- * TODO SBRT kolla body vs skin och om vakumkudde exists
+ * TODO: Check if verifikation plan exists only if plan status is planning approved 
  * */
 
 namespace VMS.TPS
@@ -41,7 +41,7 @@ namespace VMS.TPS
 			TBI,
 			TMI,
 			Mamill,
-			Unknown,	
+			Unknown,
 			NoPlan
 		}
 
@@ -68,7 +68,7 @@ namespace VMS.TPS
 				PlanSetup plan = context.PlanSetup;
 				PlanCat planCat = CheckPlanCategory(plan);
 				PlanSum psum = context.PlanSumsInScope.FirstOrDefault();
-				if (psum != null)
+				if (psum != null && planCat == PlanCat.TMI)
                 {
 					CheckPlanSum(psum);
                 } else { 
@@ -153,7 +153,6 @@ namespace VMS.TPS
 
 			if (IsPlanSRT(plan))
 			{
-
 				planCat = PlanCat.SBRT;
 			}
 			return planCat;
@@ -167,18 +166,20 @@ namespace VMS.TPS
 		{
 
 			// first the easy categories
+			PlanCat planCat = PlanCat.Electron
 			PlanCat planCat = PlanCat.SBRT;
 
 
 		}*/
 
-		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering, aning klent men bör fungera) *********
+		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering eller Course intent, aning klent men bör fungera) *********
 
 		public bool IsPlanSRT(PlanSetup plan)
 		{
+			string cIntent = plan.Course.Intent;
 			bool fractionationSRT = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions >= 5 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 35.0));
-			// missade 7Gy x 5
-			return fractionationSRT;
+			bool cIntentSRT = cIntent.Contains("SRT");
+			return (fractionationSRT || cIntentSRT);
 		}
         /*public bool IsPlanElectron(PlanSetup plan)
 		{
@@ -278,9 +279,8 @@ namespace VMS.TPS
 
         private string CheckBolusNamingConvention(string bolusID)
 		{ 
-
 			string cResults = string.Empty;
-			int bolusThick = 0;
+			double bolusThick = 0;
 
 			var bolusThicknessCm = new Regex(@"(\d{1}.?\d?)\s?(cm)", RegexOptions.IgnoreCase);
 			var bolusThicknessMm = new Regex(@"(\d{1,2})\s?(mm)", RegexOptions.IgnoreCase);
@@ -288,17 +288,17 @@ namespace VMS.TPS
             if (bolusThicknessCm.IsMatch(bolusID))
             {
 				Group g = bolusThicknessCm.Match(bolusID).Groups[1];
-				if (Int32.TryParse(g.Value, out bolusThick))
+				if (Double.TryParse(g.Value.Replace(",", ".") , out bolusThick))
                 {
-					cResults += CheckBolusThickness(bolusThick * 10);
+					cResults += CheckBolusThickness((int)(bolusThick * 10));
                 }
             }
             else if (bolusThicknessMm.IsMatch(bolusID))
             {
 				Group g = bolusThicknessMm.Match(bolusID).Groups[1];
-				if (Int32.TryParse(g.Value, out bolusThick))
+				if (Double.TryParse(g.Value, out bolusThick))
 				{
-					cResults += CheckBolusThickness(bolusThick);
+					cResults += CheckBolusThickness((int)bolusThick);
 				}
             }
             else if (!bolusCTpattern.IsMatch(bolusID))
@@ -321,8 +321,6 @@ namespace VMS.TPS
         }
 
         #endregion Bolus
-
-
 
         #region Structure set
 
@@ -433,14 +431,7 @@ namespace VMS.TPS
 					}
 				}
 			}
-
-
-
-
-
-
 			return cResults;
-
 		}
 
 
@@ -461,7 +452,7 @@ namespace VMS.TPS
 			string cResults = string.Empty;
 
 			Image image = ss.Image;
-            if (image.ZRes > 2.5)
+            if (image.ZRes >= 2.5)
             {
 				cResults += "* Image slice thickness is " + image.ZRes.ToString("0.0") + " mm. Check if this is ok for this SBRT case.\n";
 
@@ -835,31 +826,28 @@ namespace VMS.TPS
 		{
 			string cResults = "";
 			int countSetupfields = 0;
-			foreach (var beam in plan.Beams)
+			foreach (var beam in plan.Beams.Where(b => b.IsSetupField))
 			{
-				if (beam.IsSetupField)
+				cResults = cResults + "Setup-field: \t" + beam.Id + "\t \t";
+				countSetupfields++;
+				if (beam.ControlPoints.First().PatientSupportAngle != 0)
 				{
-					cResults = cResults + "Setup-field: \t" + beam.Id + "\t \t";
-					countSetupfields++;
-					if (beam.ControlPoints.First().PatientSupportAngle != 0)
+					cResults += "** Couch angle not 0!";
+				}
+				if (beam.Id.ToUpper().Substring(0, 2).Equals(plan.Id.ToUpper().Substring(0, 2))) // naming convention, should start with first two char in plan ID
+				{
+					if (beam.Id.ToUpper().Contains("CBCT")) // no extra checks for cbct-setup field neccessary
 					{
-						cResults += "** Couch angle not 0!";
-					}
-					if (beam.Id.ToUpper().Substring(0, 2).Equals(plan.Id.ToUpper().Substring(0, 2))) // naming convention, should start with first two char in plan ID
-					{
-						if (beam.Id.ToUpper().Contains("CBCT")) // no extra checks for cbct-setup field neccessary
-						{
-							cResults = cResults + "OK" + "\n";
-						}
-						else
-						{
-							cResults = cResults + CheckPlanarSetupFields(beam, plan) + "\n";    // extra checks for planar setup fields
-						}
+						cResults = cResults + "OK" + "\n";
 					}
 					else
 					{
-						cResults = cResults + "** ID should start with Plan-ID" + "\n";
+						cResults = cResults + CheckPlanarSetupField(beam, plan) + "\n";    // extra checks for planar setup fields
 					}
+				}
+				else
+				{
+					cResults = cResults + "** ID should start with Plan-ID" + "\n";
 				}
 			}
 			if (countSetupfields == 0)
@@ -867,13 +855,13 @@ namespace VMS.TPS
 				cResults = cResults + "missing!" + "\t \t" + "** Insert Setup field" + "\n";
 			}
 			// If case there is only one planar setup field: If treatment angle != 0 or 180, error, else reminder to either use catalyst or add a second setup field
-			if (plan.Beams.Where(b => b.IsSetupField == true).Where(b => !b.Id.Contains("CBCT")).Count() == 1)
+			if (plan.Beams.Where(b => b.IsSetupField).Where(b => !b.Id.ToUpper().Contains("CBCT")).Where(b => !b.Id.ToUpper().Contains("BOLUS")).Count() == 1) // CBCT and bolus helper field is ok
 			{
                 if (plan.Beams.Where(b => b.IsSetupField == false).Where(b => !b.ControlPoints.FirstOrDefault().GantryAngle.Equals(0.0) && !b.ControlPoints.FirstOrDefault().GantryAngle.Equals(180.0)).Count() > 0)
                 {
 					cResults += "* Only one planar setup field found. Add an orthogonal setup field for kV/kV matching.\n";
                 }
-                else
+                else if(plan.ApprovalStatus == PlanSetupApprovalStatus.PlanningApproved || plan.ApprovalStatus == PlanSetupApprovalStatus.TreatmentApproved)
                 {
 					cResults += " Only one planar setup field found, remember to add Catalyst for setup (or add another setup field).\n";
 				}
@@ -883,12 +871,11 @@ namespace VMS.TPS
 
 		// ********* 	Kontroll av planara Setup-fält (ej namngivna cbct), namngivning efter gantryvinkel	********* 
 
-		public string CheckPlanarSetupFields(Beam beam, PlanSetup plan)
+		public string CheckPlanarSetupField(Beam beam, PlanSetup plan)
 		{
 			string cResults = "";
-			string trimmedID = beam.Id.Substring(2).Trim();         // start iteration at index 2 (PX index 0 and 1)
+			string trimmedID = beam.Id.Substring(2).Trim();         // start iteration at index 2 (PX index 0 and 1, already checked)
 			int gantryAngleInBeamID = 1000;                         // dummy number
-			int latLimitForCollisionCheck = 40;
 			int test = 1000;
 			// check for naming according to gantry angle
 			for (int i = 1; i < trimmedID.Length + 1; i++)
@@ -899,84 +886,96 @@ namespace VMS.TPS
 				}
 			}
 
-
-
-
-			// simple collision check
+			// simple collision check only for the major axes
 			if (gantryAngleInBeamID != 1000)
 			{
 				if (gantryAngleInBeamID == Math.Round(beam.ControlPoints.First().GantryAngle))
 				{
-					double lat = IsoPositionFromTableEnd(beam, plan.TreatmentOrientation.ToString()).x;
-					if (Math.Abs(lat) < latLimitForCollisionCheck)
-					{
-						cResults += "OK";
-					}
-					else
-					{
-						// make a simple collision check based on isocenter coordinates
-						bool tableToRight = (lat < 0);  // table move to right when viewed from table end
-						switch (Convert.ToInt32(beam.ControlPoints.First().GantryAngle))
-						{
-							case 180:
-								{
-									if (tableToRight)
-									{
-										cResults += "OK";
-									}
-									else
-									{
-										cResults += "* Check for collision";
-									}
-									break;
-								}
-							case 90:
-								{
-									if (tableToRight)
-									{
-										cResults += "* Check for collision";
-									}
-									else
-									{
-										cResults += "OK";
-									}
-									break;
-								}
-							case 0:
-								{
-									if (tableToRight)
-									{
-										cResults += "* Check for collision";
-									}
-									else
-									{
-										cResults += "OK";
-									}
-									break;
-								}
-							default:
-								cResults += "OK";
-								break;
-						}
-					}
+					cResults += CheckSetupFieldForCollision(beam, plan);
 				}
 				else
 				{
-					cResults += "* Check name!";
+					cResults += "* Check name (gantry angle)!";
 				}
 			}
 			else
 			{
-				cResults += "* Check name!";
+                if (beam.Id.ToUpper().Contains("BOLUS"))
+                {
+					cResults += "OK";
+                }
+                else
+                {
+					cResults += "* Id should include gantry angle!";
+				}
+			}
+			return cResults;
+		}
+
+        private string CheckSetupFieldForCollision(Beam beam, PlanSetup plan)
+        {
+			string cResults = string.Empty;
+			int latLimitForCollisionCheck = 40;
+			double lat = IsoPositionFromTableEnd(beam, plan.TreatmentOrientation.ToString()).x;
+			if (Math.Abs(lat) < latLimitForCollisionCheck)
+			{
+				cResults += "OK";
+			}
+			else
+			{
+				// make a simple collision check based on isocenter coordinates
+				bool tableToRight = (lat < 0);  // table move to right when viewed from table end
+				switch (Convert.ToInt32(beam.ControlPoints.First().GantryAngle))
+				{
+					case 180:
+						{
+							if (tableToRight)
+							{
+								cResults += "OK";
+							}
+							else
+							{
+								cResults += "* Check for collision";
+							}
+							break;
+						}
+					case 90:
+						{
+							if (tableToRight)
+							{
+								cResults += "* Check for collision";
+							}
+							else
+							{
+								cResults += "OK";
+							}
+							break;
+						}
+					case 0:
+						{
+							if (tableToRight)
+							{
+								cResults += "* Check for collision";
+							}
+							else
+							{
+								cResults += "OK";
+							}
+							break;
+						}
+					default:
+						cResults += "OK";
+						break;
+				}
 			}
 			return cResults;
 		}
 
 
-		// ********* 	Kontroll av diverse fältregler och "best practices"	********* 
-		// TODO: better sorting, maybe one general and then divided in categories (enum). Missing case for Static-I and MLC doseDynamic (IMRT)
+        // ********* 	Kontroll av diverse fältregler och "best practices"	********* 
+        // TODO: better sorting, maybe one general and then divided in categories (enum). Missing case for Static-I and MLC doseDynamic (IMRT)
 
-		public string CheckFieldRules(PlanSetup plan)
+        public string CheckFieldRules(PlanSetup plan)
 		{
 			string cResults = "";
 			string remarks = "";
@@ -1075,19 +1074,6 @@ namespace VMS.TPS
 
         }
 
-        // ********* 	Enkel kontroll av eventuell kollisionsrisk, enbart planara setupfält	*********
-        /*private string SimpleCollisionCheck(PlanSetup plan)
-		{
-			string cResults = "";
-            if (IsoPositionFromTableEnd(plan).x < -40 && )
-            {
-
-            }
-
-
-			return cResults;
-			// TODO: check if there are "extended" accessible or perhaps gantry direction even if its static
-		}*/
 
 
         // ********* 	Kontroll av dosrat vid FFF	*********
