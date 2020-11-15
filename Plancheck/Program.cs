@@ -21,7 +21,7 @@ using System.Collections;
 /* TODO: create plan category (enum) and make category specific checks for tbi, sbrt, electron, etc
  * TODO: 
  * TODO Plan sum; foreach plan: check, easier to do in build and wpf...
- * TODO: Check if verifikation plan exists only if plan status is planning approved 
+ * TODO: Check if verification plan exists only if plan status is planning approved 
  * */
 
 namespace VMS.TPS
@@ -34,13 +34,13 @@ namespace VMS.TPS
 
 		enum PlanCat
 		{
-			SBRT,
 			Electron,
+			SBRT,
 			CRT,
 			IMRT,
+			VMAT,
 			TBI,
 			TMI,
-			Mamill,
 			Unknown,
 			NoPlan
 		}
@@ -59,58 +59,235 @@ namespace VMS.TPS
 					StructureSet ss = context.StructureSet;
 					string messageTitle = "Quick check on structure set" + ss.Id;
 					string message = CheckStructureSet(ss) +
-						CheckCouchStructure(ss);
+					CheckCouchStructure(ss);
 					MessageBox.Show(message, messageTitle);
 				}
 			}
 			else
 			{
 				PlanSetup plan = context.PlanSetup;
-				PlanCat planCat = CheckPlanCategory(plan);
+				PlanCat planCat = PlanCat.Unknown;
+				CheckPlanCategory(plan, ref planCat);
 				PlanSum psum = context.PlanSumsInScope.FirstOrDefault();
-				if (psum != null && planCat == PlanCat.TMI)
+				if (psum != null)
                 {
 					CheckPlanSum(psum);
-                } else { 
+                } else {
 
-			
-				Course course = context.Course;
 
-				string courseIntent = context.Course.Intent;
-				string courseId = context.Course.Id;
+					List<string> relevantDocuments = new List<string>();
+					Course course = context.Course;
+					string courseIntent = context.Course.Intent;
+					string courseId = context.Course.Id;
+					string messageTitle = "Quick check on " + courseId + " " + plan.Id;
+					string message = string.Empty;
 
-				string messageTitle = "Quick check on " + courseId + " " + plan.Id + "\n\n";
+					/*
+					List<KeyValuePair<string, string>> kvpList = new List<KeyValuePair<string, string>>()
+{
+	new KeyValuePair<string, string>("Key1", "Value1"),
+	new KeyValuePair<string, string>("Key2", "Value2"),
+	new KeyValuePair<string, string>("Key3", "Value3"),
+};
+					*/
 
-					string message =
-
-					CheckCourseIntent(courseIntent, plan) + "\n" +
+					message +=
+					CheckCourseIntent(courseIntent, plan, planCat) + "\n" +
 					CheckPlanNamingConvention(plan) +
 					CheckClinProt(plan) +
 					CheckTargetVolumeID(plan, plan.StructureSet) +
-					CheckSRTCtvPtvPlanNumbering(plan, planCat) +
-					CheckCouchStructure(plan.StructureSet) +
-					CheckForBolus(plan) +
-					CheckSetupField(plan) + "\n" +
-					//"Treatment fields \n" +
-					//"ID \t Energy \t Tech. \t Drate \t MLC \n" +
-					CheckFieldRules(plan) +
+					CheckCtvPtvPlanNumbering(plan, planCat) +
+					CheckForBolus(plan, ref relevantDocuments) +
 					CheckFieldNamingConvention(course, plan) +
-					CheckStructureSet(plan, planCat); 
-				//DeltaShiftFromOrigin(plan);
-                //SimpleCollisionCheck(plan);
+					CheckStructureSet(plan, planCat);
 
-                if (message.Length == 0)
-                {
-					message = "No comments...";
-                }
+                    if (planCat == PlanCat.Electron)
+                    {
+						message += CheckElectronPlan(plan);
+					}
+                    else
+                    {
+						message +=
+						CheckSetupField(plan) + "\n" +
+						//"Treatment fields \n" +
+						//"ID \t Energy \t Tech. \t Drate \t MLC \n" +
+						CheckFieldRules(plan) +
+						CheckCouchStructure(plan.StructureSet) +
 
-				MessageBox.Show(message, messageTitle);
+						CheckStructureSet(plan, planCat);
+						//DeltaShiftFromOrigin(plan);
+						//SimpleCollisionCheck(plan);
+					}
+
+
+					if (message.Length == 0)
+					{
+						message = "No comments...";
+					}
+
+					MessageBox.Show(message, messageTitle);
+
 				}
 			}
 		}
 
-        private string CheckSRTCtvPtvPlanNumbering(PlanSetup plan, PlanCat planCat)
+
+
+        private void CheckPlanSum(PlanSum psum)
+        {// Only for TMI...
+			string sumPlans = string.Empty;
+
+
+
+			//List<PlanSetup> sumPlanTreatOrderHFS = psum.PlanSetups.OrderBy(p => p.TreatmentOrientation).ThenBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
+			//List<PlanSetup> sumPlanTreatmentOrder = psum.PlanSetups.OrderBy(p => p.Id).ToList();
+			List<PlanSetup> sumPlanTreatOrderHFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.HeadFirstSupine).OrderBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
+			List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
+
+			sumPlans += "HFS" + "\n\n" + sumPlanTreatOrderHFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderHFS[0]);
+
+			for (int i = 1; i < sumPlanTreatOrderHFS.Count(); i++)
+            {
+				sumPlans += sumPlanTreatOrderHFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderHFS[i-1], sumPlanTreatOrderHFS[i]);
+			}
+
+			sumPlans += "\n\nFFS" + "\n\n" + sumPlanTreatOrderFFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderFFS[0]);
+
+			for (int i = 1; i < sumPlanTreatOrderFFS.Count(); i++)
+			{
+				sumPlans += sumPlanTreatOrderFFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderFFS[i - 1], sumPlanTreatOrderFFS[i]);
+			}
+
+
+
+
+
+			MessageBox.Show(sumPlans);
+		}
+
+
+        #region Plan Category determination
+
+
+        /// <summary>
+        /// Basic check for which plan category the active plan falls into
+        /// </summary>
+        /// <param name="plan"></param>
+        /// <param name="planCat"></param>
+        private void CheckPlanCategory(PlanSetup plan, ref PlanCat planCat)
+		{
+            if (IsPlanElectron(plan))
+            {
+				planCat = PlanCat.Electron;
+			}
+			else if (IsPlanSRT(plan))
+			{
+				planCat = PlanCat.SBRT;
+			}
+		}
+
+		public bool IsPlanElectron(PlanSetup plan)
+		{
+            if (plan.Beams.Where(b => !b.IsSetupField).Where(b => b.EnergyModeDisplayName.Contains("E")) != null)
+            {
+				return true;
+			}
+            else
+            {
+				return false;
+            }
+		}
+
+		public bool IsPlanSRT(PlanSetup plan)
+		{
+			bool fractionationSRT = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions >= 5 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 35.0));
+			bool cIntentSRT = plan.Course.Intent.Contains("SRT");
+			return (fractionationSRT || cIntentSRT);
+		}
+
+
+		#endregion Plan Category determination
+
+		#region Electron Plan Checks
+
+		private string CheckElectronPlan(PlanSetup plan)
+		{
+			//TODO: Check valid SSD
+			//TODO: list of premade blocks for Appl. A10
+			string cResults = string.Empty;
+			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id)) 
+			{
+				cResults += beam.Technique.Id + "\n" +
+				beam.Applicator.Id + "\n";
+                if (beam.Blocks.Count() == 1)
+                {
+					Block eBlock = beam.Blocks.First();
+					cResults += eBlock.Tray.Id + "\n" + // CustomFFDA, FFDA(A10+)
+						eBlock.AddOnMaterial.Id + "\n" + //Elektonblock
+						eBlock.IsDiverging + "\n" +
+						eBlock.Id + "\n" +
+						eBlock.Type + "\n" + //BlockType.APERTURE + "\n";
+						CheckEBlockRules(beam) +
+						CheckEBlockOutLine(eBlock);
+				}
+                else if (beam.Blocks.Count() > 1)
+                {
+					cResults += "WTH!! why would u need more than ONE block?!\n";
+				} 
+				else
+                {
+					cResults += "Note: No custom block will give the nominal square field size of the applicator with the standard insert + " +
+						"Can not automaticly check the Tray Id under Accessories -> Slot 3.\n";
+				}
+			}
+			return cResults;
+		}
+
+        private string CheckEBlockRules(Beam beam)
         {
+			string cResults = string.Empty;
+			Block eBlock = beam.Blocks.First();
+			if (eBlock.Type != BlockType.APERTURE)
+			{
+				cResults += "* Electron block type should always be Aperture, not Shielding!\n";
+			}
+			if (eBlock.IsDiverging)
+			{
+				cResults += "* Electron block type should generally not be diverging.\n";
+			}
+			if (beam.Applicator.Id.Contains("A06"))
+			{
+				cResults += "* Please choose appl. A10 instead if custom block is needed, or remove the block if nominal field size is desired.\n";
+			}
+			else if (!eBlock.Tray.Id.Contains("CustomFFDA"))
+			{
+				cResults += "** Wrong Block Tray selected! See guidelines in Centuri.\n";
+			}
+			return cResults;
+		}
+
+        private string CheckEBlockOutLine(Block eBlock)
+        {
+			string cResults = string.Empty;
+			var blockPoints = eBlock.Outline;
+			//double minRadi;
+			//double maxRadi;
+
+            foreach (var p in blockPoints)
+            {
+				cResults += p[0].X + ", " + p[3] + "\tlength" + p.Count();
+            }
+
+			return cResults + "endofprupp\t" + blockPoints.Count();
+		}
+
+
+		#endregion Electron Plan Checks
+
+
+
+		private string CheckCtvPtvPlanNumbering(PlanSetup plan, PlanCat planCat)
+		{
 			string cResults = string.Empty;
 			StructureSet ss = plan.StructureSet;
 			int number;
@@ -124,80 +301,30 @@ namespace VMS.TPS
 				Structure ptv = ss.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV").SingleOrDefault();
 				// Check if more than one PTV exists
 				int nrOfPTV = ss.Structures.Where(s => s.Id.Substring(0, 3) == "PTV").Where(s => s.DicomType == "PTV").Count();
-				if (ptv != null && Int32.TryParse(ptv.Id.Substring(3, 1), out number) && nrOfPTV >1)
+				if (ptv != null && Int32.TryParse(ptv.Id.Substring(3, 1), out number) && nrOfPTV > 1)
 				{
 					//Structure ctv = ss.Structures.Where(s => s.Id.Substring(0, 4) == ("CTV" + ptv.Id.Substring(3, 1))).Where(s => s.DicomType == "CTV").SingleOrDefault();
-                    if (plan.Id.Substring(1,1) != ptv.Id.Substring(3,1))
-                    {
+					if (plan.Id.Substring(1, 1) != ptv.Id.Substring(3, 1))
+					{
 						cResults += "* Plan ID number not consistent with PTV ID number, check if this is ok";
-                    }
+					}
 					//cResults = "Plan,PTV and CTV \t" + plan.Id + "\t" + ptv.Id + "\t" + ctv.Id + "\t" + nrOfPTV + "\n";
-                }
+				}
 			}
 			return cResults + "\n";
 		}
-		
-        private void CheckPlanSum(PlanSum psum)
-        {// Only for TMI...
-			string sumPlans = string.Empty;
-            foreach (var plan in psum.PlanSetups.OrderBy(p => p.Id))
-            {
-				sumPlans += plan.Id + "\t\n";
-            }
-			MessageBox.Show(sumPlans);
-		}
 
-        private PlanCat CheckPlanCategory(PlanSetup plan)
+
+		#region delta shift
+
+		private string DeltaShiftFromPlanToPlan(PlanSetup fromPlan, PlanSetup toPlan)
 		{
-			PlanCat planCat = PlanCat.Unknown;
-
-			if (IsPlanSRT(plan))
-			{
-				planCat = PlanCat.SBRT;
-			}
-			return planCat;
-		}
+			VVector deltaShift = DeltaShiftIncm(fromPlan, fromPlan.Beams.First().IsocenterPosition, toPlan.Beams.First().IsocenterPosition);
 
 
-
-
-
-		/*public void SetPlanCategory(Course course, PlanSetup plan)
-		{
-
-			// first the easy categories
-			PlanCat planCat = PlanCat.Electron
-			PlanCat planCat = PlanCat.SBRT;
-
-
-		}*/
-
-		// ********* 	Kontroll om SRT-plan (enbart baserad på fraktionering eller Course intent, aning klent men bör fungera) *********
-
-		public bool IsPlanSRT(PlanSetup plan)
-		{
-			string cIntent = plan.Course.Intent;
-			bool fractionationSRT = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions >= 5 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 35.0));
-			bool cIntentSRT = cIntent.Contains("SRT");
-			return (fractionationSRT || cIntentSRT);
-		}
-        /*public bool IsPlanElectron(PlanSetup plan)
-		{
-			bool fractionationSRS = ((plan.NumberOfFractions > 2 && plan.DosePerFraction.Dose >= 8.0 && plan.TotalDose.Dose >= 40.0) || (plan.NumberOfFractions > 7 && plan.DosePerFraction.Dose >= 6 && plan.TotalDose.Dose >= 45.0));
-
-			return fractionationSRS;
-		}*/
-
-        #region delta shift
-
-        private string DeltaShiftFromPlanToPlan(PlanSetup fromPlanIso, PlanSetup toPlanIso)
-		{
-			VVector deltaShift = DeltaShiftIncm(fromPlanIso, fromPlanIso.Beams.First().IsocenterPosition, toPlanIso.Beams.First().IsocenterPosition);
-
-
-			string delta = "iso-Vrt: \t" + deltaShift.y.ToString("0.00") + " cm\t";
-			delta += "iso-Lng: \t" + deltaShift.z.ToString("0.00") + " cm\t";
-			delta += "iso-Lat: \t" + deltaShift.x.ToString("0.00") + " cm\n";
+			string delta = " Delta(Vrt,Lng,Lat)[cm]: \t" + deltaShift.y.ToString("0.00");
+			delta += "\t" + deltaShift.z.ToString("0.00");
+			delta += "\t" + deltaShift.x.ToString("0.00")+ "\n";
 			return delta;
 		}
 
@@ -236,7 +363,7 @@ namespace VMS.TPS
 
 		// ********* Kontroll av bolus, om kopplat till alla fält, förväntat HU-värde och namngivning  *********
 		// kollar enbart bolus kopplat till något fält
-		private string CheckForBolus(PlanSetup plan)
+		private string CheckForBolus(PlanSetup plan, ref List<string> relevantDocuments)
         {
 			string cResults = string.Empty;
 			List<string> bolusList = new List<string>();
@@ -262,6 +389,10 @@ namespace VMS.TPS
 					}
                 }
             }
+            if (noOfBoluses >= 1)
+            {
+				relevantDocuments.Add("https://www.red-gate.com/si");
+			}
             for (int i = 0; i < bolusList.Count(); i++)
             {
                 if (bolusListnr[i] != nrOfBeams)
@@ -361,19 +492,20 @@ namespace VMS.TPS
 			string cResults = string.Empty;
 			string cAssignedHU = string.Empty;
 			string cSeparateParts = string.Empty;
+			int numberOfSeparateParts;
 			try
 			{
-				foreach (var structure in ss.Structures.Where(s => !s.Id.Contains("Couch")))
+				foreach (var structure in ss.Structures.Where(s => !s.Id.Contains("Couch")).Where(s => !s.Id.Contains("Bones")))
 				{
 					cAssignedHU += CheckForAssignedHU(structure);
                     if (!structure.IsEmpty && structure.HasSegment)
                     {
-						if (structure.GetNumberOfSeparateParts() > 1)
+						numberOfSeparateParts = structure.GetNumberOfSeparateParts();
+						if (numberOfSeparateParts > 1)
 						{
-							cSeparateParts += string.Format("Structure \t{0} has \t{1} separate parts.\n", structure.Id, structure.GetNumberOfSeparateParts());
+							cSeparateParts += string.Format("Structure \t{0} has \t{1} separate parts.\n", structure.Id, numberOfSeparateParts);
 						}
 					}
-
 				}
 			}
 			catch (Exception e)
@@ -390,7 +522,7 @@ namespace VMS.TPS
 			}
 
 
-			// attemnt to roughly estimate CTV to PTV margin
+			// attemt to roughly estimate CTV to PTV margin
 			// Search for structure in structure set with same id as target volume and checks if type is PTV, defaults to null if criteria not met
 			List<Structure> ptvList = ss.Structures.Where(s => s.Id.Substring(0,3) == "PTV").Where(s => s.DicomType == "PTV").ToList();
 			// Check if more than one PTV exists
@@ -399,36 +531,46 @@ namespace VMS.TPS
 				cResults += "Estimation of CTV to PTV margin by comparing outer bounds of respective structure:\n";
 				foreach (var ptv in ptvList)
 				{
-					Structure ctv = ss.Structures.Where(s => ptv.Id.Contains(s.Id.Substring(1, s.Id.Length - 1))).Where(s => s.DicomType == "CTV").SingleOrDefault();
-					//Structure ctv = ss.Structures.Where(s => ptv.Id.Contains(s.Id.Substring(1, s.Id.Length - 1))).SingleOrDefault();
-					bool correctCTV = true;
-					if (ctv == null)
+                    try
                     {
-						ctv = ss.Structures.Where(s => s.Id.Substring(0, 3) == "CTV").Where(s => (s.CenterPoint - ptv.CenterPoint).Length < 5).Where(s => ptv.MeshGeometry.Bounds.Contains(s.MeshGeometry.Bounds)).SingleOrDefault();
-					} 
-					else
+						Structure ctv = ss.Structures.Where(s => ptv.Id.Contains(s.Id.Substring(1, s.Id.Length - 1))).Where(s => s.DicomType == "CTV").SingleOrDefault();
+						//Structure ctv = ss.Structures.Where(s => ptv.Id.Contains(s.Id.Substring(1, s.Id.Length - 1))).SingleOrDefault();
+						bool correctCTV = true;
+						if (ctv == null)
+						{
+							ctv = ss.Structures.Where(s => s.Id.Substring(0, 3) == "CTV").Where(s => (s.CenterPoint - ptv.CenterPoint).Length < 5).Where(s => ptv.MeshGeometry.Bounds.Contains(s.MeshGeometry.Bounds)).SingleOrDefault();
+						}
+						else
+						{
+							// if identical ID, check that PTV actually contains CTV 
+							if ((ctv.CenterPoint - ptv.CenterPoint).Length > 5 || !ptv.MeshGeometry.Bounds.Contains(ctv.MeshGeometry.Bounds))
+							{
+								//ctv = null; Won't allow this
+								correctCTV = false;
+							}
+						}
+						//Structure ctv = ss.Structures.Where(s => s.Id.Substring(1, s.Id.Length - 1) == ptv.Id.Substring(1, ptv.Id.Length - 1)).SingleOrDefault();
+						// unfortunately are some ctv in clinical protocol dicomType avoid...
+						// strongle depends of exactly identical naming, can perhaps compare mass centrum or bounds contain?
+						if (ctv != null && correctCTV)
+						{
+							double deltaX = Math.Round(ptv.MeshGeometry.Bounds.SizeX + 0.5 - ctv.MeshGeometry.Bounds.SizeX) / 2;
+							double deltaY = Math.Round(ptv.MeshGeometry.Bounds.SizeY + 0.5 - ctv.MeshGeometry.Bounds.SizeY) / 2;
+							double deltaZ = Math.Round(ptv.MeshGeometry.Bounds.SizeZ - ctv.MeshGeometry.Bounds.SizeZ) / 2;
+							cResults += ctv.Id + " -> " + ptv.Id + ":\t\tx: " + deltaX.ToString("0") + "\ty: " + deltaY.ToString("0") + "\tz: " + deltaZ.ToString("0") + "\n";
+						}
+						else
+						{
+							cResults += ctv.Id + " -> " + ptv.Id + ":\t can not identify corresponding CTV.\n";
+						}
+					}
+                    catch (Exception e)
                     {
-                        // if identical ID, check that PTV actually contains CTV 
-                        if ((ctv.CenterPoint - ptv.CenterPoint).Length > 5 || !ptv.MeshGeometry.Bounds.Contains(ctv.MeshGeometry.Bounds))
-                        {
-							//ctv = null; Won't allow this
-							correctCTV = false;
-                        }
-                    }
-					//Structure ctv = ss.Structures.Where(s => s.Id.Substring(1, s.Id.Length - 1) == ptv.Id.Substring(1, ptv.Id.Length - 1)).SingleOrDefault();
-					// unfortunately are some ctv in clinical protocol dicomType avoid...
-					// strongle depends of exactly identical naming, can perhaps compare mass centrum or bounds contain?
-					if (ctv != null && correctCTV)
-					{
-						double deltaX = Math.Round(ptv.MeshGeometry.Bounds.SizeX+0.5 - ctv.MeshGeometry.Bounds.SizeX) / 2;
-						double deltaY = Math.Round(ptv.MeshGeometry.Bounds.SizeY+0.5 - ctv.MeshGeometry.Bounds.SizeY) / 2;
-						double deltaZ = Math.Round(ptv.MeshGeometry.Bounds.SizeZ - ctv.MeshGeometry.Bounds.SizeZ) / 2;
-						cResults += ctv.Id + " -> " + ptv.Id + ":\t\tx: " + deltaX.ToString("0") + "\ty: " + deltaY.ToString("0") + "\tz: " + deltaZ.ToString("0") + "\n";
+
+						cResults += ptv.Id + " gave following error: \t" + e;
+
 					}
-                    else
-					{
-						cResults += ctv.Id + " -> " + ptv.Id + ":\t can not identify corresponding CTV.\n";
-					}
+
 				}
 			}
 			return cResults;
@@ -575,14 +717,14 @@ namespace VMS.TPS
 
 		// ********* Kontroll av Course Intent, kollar om ifyllt, annars enbart SRS/SBRT-planer  *********
 
-		public string CheckCourseIntent(string cIntent, PlanSetup plan)
+		private string CheckCourseIntent(string cIntent, PlanSetup plan, PlanCat planCat)
 		{
 			string cResults = "";
 			if (cIntent.Trim().Length == 0)
 			{
 				cResults = "** Course intent is empty!";
 			}
-			else if (IsPlanSRT(plan) && !cIntent.Equals("SRT"))
+			else if (planCat == PlanCat.SBRT)
 			{
 				cResults += "** Change course intent to SRT!";
 			}
