@@ -69,7 +69,7 @@ namespace VMS.TPS
 				PlanCat planCat = PlanCat.Unknown;
 				CheckPlanCategory(plan, ref planCat);
 				PlanSum psum = context.PlanSumsInScope.FirstOrDefault();
-				if (psum != null)
+				if (psum != null && planCat == PlanCat.TMI)
                 {
 					CheckPlanSum(psum);
                 } else {
@@ -188,14 +188,7 @@ namespace VMS.TPS
 
 		public bool IsPlanElectron(PlanSetup plan)
 		{
-            if (plan.Beams.Where(b => !b.IsSetupField).Where(b => b.EnergyModeDisplayName.Contains("E")) != null)
-            {
-				return true;
-			}
-            else
-            {
-				return false;
-            }
+			return plan.Beams.Where(b => !b.IsSetupField).Where(b => b.EnergyModeDisplayName.Contains("E")).Any();
 		}
 
 		public bool IsPlanSRT(PlanSetup plan)
@@ -213,12 +206,11 @@ namespace VMS.TPS
 		private string CheckElectronPlan(PlanSetup plan)
 		{
 			//TODO: Check valid SSD
-			//TODO: list of premade blocks for Appl. A10
 			string cResults = string.Empty;
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id)) 
 			{
-				cResults += beam.Technique.Id + "\n" +
-				beam.Applicator.Id + "\n";
+				cResults += beam.Technique.Id + "\n" + beam.Applicator.Id + "\n";
+				// Check number of blocks connected to beam
                 if (beam.Blocks.Count() == 1)
                 {
 					Block eBlock = beam.Blocks.First();
@@ -228,7 +220,7 @@ namespace VMS.TPS
 						eBlock.Id + "\n" +
 						eBlock.Type + "\n" + //BlockType.APERTURE + "\n";
 						CheckEBlockRules(beam) +
-						CheckEBlockOutLine(eBlock);
+						CheckEBlockOutLine(beam, eBlock);
 				}
                 else if (beam.Blocks.Count() > 1)
                 {
@@ -236,7 +228,7 @@ namespace VMS.TPS
 				} 
 				else
                 {
-					cResults += "Note: No custom block will give the nominal square field size of the applicator with the standard insert + " +
+					cResults += "Note: WTF acc. to Centuri, still need a block??????????????No custom block will give the nominal square field size of the applicator with the standard insert + " +
 						"Can not automaticly check the Tray Id under Accessories -> Slot 3.\n";
 				}
 			}
@@ -261,25 +253,96 @@ namespace VMS.TPS
 			}
 			else if (!eBlock.Tray.Id.Contains("CustomFFDA"))
 			{
+				// THIS IS APPARANTLY WRONG!?
 				cResults += "** Wrong Block Tray selected! See guidelines in Centuri.\n";
 			}
 			return cResults;
 		}
 
-        private string CheckEBlockOutLine(Block eBlock)
+        private string CheckEBlockOutLine(Beam beam, Block eBlock)
         {
 			string cResults = string.Empty;
 			var blockPoints = eBlock.Outline;
-			//double minRadi;
-			//double maxRadi;
-
+			int[] standardEBlockDiameters = { 4, 5, 6, 7, 8, 9, 10 };
+			double radii = 0;
+            double minRadi = 1000;
+            double maxRadi = 0;
+			// TODO: I assume this whole thing can be made into a one liner with linq...
             foreach (var p in blockPoints)
             {
-				cResults += p[0].X + ", " + p[3] + "\tlength" + p.Count();
-            }
+                for (int i = 0; i < p.Count(); i++)
+                {
+					Vector pointVector = (Vector)p[i];
+					radii = pointVector.Length;
+                    if (radii > maxRadi)
+                    {
+						maxRadi = radii;
+                    }
+                    else if (radii < minRadi)
+                    {
+						minRadi = radii;
+                    }
+                }
+			}
+            if (Math.Round(maxRadi, 0) == Math.Round(minRadi, 0) && standardEBlockDiameters.Contains((int)(2 * Math.Round(maxRadi, 0)/10)))
+			{
+				int stdBlockDiam = (int)(2 * Math.Round(maxRadi, 0) / 10);
 
-			return cResults + "endofprupp\t" + blockPoints.Count();
+				if (beam.Applicator.Id.Equals("A10"))
+                {
+					// TODO: check the naming of the block ID, which should reflect the diameter of the block
+					cResults += "Standard block with diameter " + stdBlockDiam.ToString("0") + " cm\n";
+					cResults += CheckStandardEBlockNamingConvention(eBlock.Id, stdBlockDiam);
+				}
+                else
+                {
+					cResults += "* The block aperture diameter (" + ((int)(2 * Math.Round(maxRadi, 0)) / 10).ToString("0") + " cm)" +
+						" equals a standard block, please change the applicator to A10 if you want to use a standard block!\n";
+				}
+			}
+			return cResults;
 		}
+
+
+		private string CheckStandardEBlockNamingConvention(string blockID, int apertureDiameter)
+		{
+			string cResults = string.Empty;
+			int blockIdDiam = 0;
+			string wrongNaming = "* Block ID should include the aperture diameter for standard blocks \n( i.e. \"Diameter " + apertureDiameter.ToString("0") + " cm\" ).";
+
+			var blockApertureDiamCm = new Regex(@"(\d{1,2})\s?(cm)", RegexOptions.IgnoreCase);
+			var blockApertureDiamMm = new Regex(@"(\d{1,3})\s?(mm)", RegexOptions.IgnoreCase);
+
+			if (blockApertureDiamCm.IsMatch(blockID))
+			{
+				Group g = blockApertureDiamCm.Match(blockID).Groups[1];
+				if (int.TryParse(g.Value, out blockIdDiam))
+				{
+					cResults += "";
+				}
+			}
+			else if (blockApertureDiamMm.IsMatch(blockID))
+			{
+				Group g = blockApertureDiamMm.Match(blockID).Groups[1];
+				if (int.TryParse(g.Value, out blockIdDiam))
+				{
+					blockIdDiam = (int)(blockIdDiam / 10); 
+				}
+            }
+            else
+            {
+				cResults += wrongNaming;
+			}
+            if (apertureDiameter != blockIdDiam)
+            {
+				cResults += wrongNaming;
+			}
+
+			return cResults;
+		}
+
+
+
 
 
 		#endregion Electron Plan Checks
@@ -358,7 +421,7 @@ namespace VMS.TPS
 
 		#endregion
 
-		#region Bolus
+		#region Bolus // TODO: thickness in ID probably deprecated in 16.x...
 
 
 		// ********* Kontroll av bolus, om kopplat till alla fält, förväntat HU-värde och namngivning  *********
@@ -1180,9 +1243,9 @@ namespace VMS.TPS
         private double GetVmatEstimatedBeamOnTime(Beam beam)
         {
 			double time = 0;
-			int maxDoseRate = beam.DoseRate / 60;
+			int maxDoseRate = beam.DoseRate / 60; // MU/s
 			double totalMU = beam.Meterset.Value;
-			int gantryMaxSpeed = 6;
+			int gantryMaxSpeed = 6;	// Nominal value for Truebeam in deg/s
 
             for (int i = 1; i < beam.ControlPoints.Count(); i++)
             {
@@ -1210,10 +1273,7 @@ namespace VMS.TPS
 					time += deltaMU / doseRateMaxGantrySpeed;
 				}
             }
-			
 			return time;
-
-
         }
 
 
