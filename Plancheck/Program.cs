@@ -34,6 +34,7 @@ namespace VMS.TPS
 
 		enum PlanCat
 		{
+			Unknown,
 			Electron,
 			SBRT,
 			CRT,
@@ -41,12 +42,12 @@ namespace VMS.TPS
 			VMAT,
 			TBI,
 			TMI,
-			Unknown,
 			NoPlan
 		}
 
 		public void Execute(ScriptContext context)
 		{
+
 
 			if ((context.PlanSumsInScope.FirstOrDefault() == null && context.PlanSetup == null) || context.StructureSet == null)
 			{
@@ -65,33 +66,27 @@ namespace VMS.TPS
 			}
 			else
 			{
-				PlanSetup plan = context.PlanSetup;
-				PlanCat planCat = PlanCat.Unknown;
-				CheckPlanCategory(plan, ref planCat);
-				PlanSum psum = context.PlanSumsInScope.FirstOrDefault();
-				if (psum != null && planCat == PlanCat.TMI)
-                {
-					CheckPlanSum(psum);
-                } else {
+                    PlanSetup plan = context.PlanSetup;
+                    PlanCat planCat = PlanCat.Unknown;
+                    CheckPlanCategory(plan, ref planCat);
+                    PlanSum psum = context.PlanSumsInScope.FirstOrDefault();
 
+                    if (psum != null && planCat == PlanCat.TMI)
+                    {
+                        CheckPlanSum(psum);
+                    }
+                    else
+                    {
 
-					List<string> relevantDocuments = new List<string>();
+                    List<string> relevantDocuments = new List<string>();
 					Course course = context.Course;
 					string courseIntent = context.Course.Intent;
 					string courseId = context.Course.Id;
 					string messageTitle = "Quick check on " + courseId + " " + plan.Id;
 					string message = string.Empty;
 
-					/*
-					List<KeyValuePair<string, string>> kvpList = new List<KeyValuePair<string, string>>()
-{
-	new KeyValuePair<string, string>("Key1", "Value1"),
-	new KeyValuePair<string, string>("Key2", "Value2"),
-	new KeyValuePair<string, string>("Key3", "Value3"),
-};
-					*/
-
 					message +=
+						"Assumed plan category: " + planCat + "\n\n" +
 					CheckCourseIntent(courseIntent, plan, planCat) + "\n" +
 					CheckPlanNamingConvention(plan) +
 					CheckClinProt(plan) +
@@ -101,7 +96,8 @@ namespace VMS.TPS
 					CheckFieldNamingConvention(course, plan) +
 					CheckStructureSet(plan, planCat);
 
-                    if (planCat == PlanCat.Electron)
+
+					if (planCat == PlanCat.Electron)
                     {
 						message += CheckElectronPlan(plan);
 					}
@@ -111,9 +107,8 @@ namespace VMS.TPS
 						CheckSetupField(plan) + "\n" +
 						//"Treatment fields \n" +
 						//"ID \t Energy \t Tech. \t Drate \t MLC \n" +
-						CheckFieldRules(plan) +
+						CheckFieldRules(plan, planCat) +
 						CheckCouchStructure(plan.StructureSet) +
-
 						CheckStructureSet(plan, planCat);
 						//DeltaShiftFromOrigin(plan);
 						//SimpleCollisionCheck(plan);
@@ -131,37 +126,34 @@ namespace VMS.TPS
 			}
 		}
 
-
-
         private void CheckPlanSum(PlanSum psum)
         {// Only for TMI...
 			string sumPlans = string.Empty;
-
-
 
 			//List<PlanSetup> sumPlanTreatOrderHFS = psum.PlanSetups.OrderBy(p => p.TreatmentOrientation).ThenBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
 			//List<PlanSetup> sumPlanTreatmentOrder = psum.PlanSetups.OrderBy(p => p.Id).ToList();
 			List<PlanSetup> sumPlanTreatOrderHFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.HeadFirstSupine).OrderBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
 			List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
 
-			sumPlans += "HFS" + "\n\n" + sumPlanTreatOrderHFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderHFS[0]);
-
-			for (int i = 1; i < sumPlanTreatOrderHFS.Count(); i++)
+            if (sumPlanTreatOrderHFS.Count() >= 1)
             {
-				sumPlans += sumPlanTreatOrderHFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderHFS[i-1], sumPlanTreatOrderHFS[i]);
+				sumPlans += "HFS" + "\n\n" + sumPlanTreatOrderHFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderHFS[0]);
+
+				for (int i = 1; i < sumPlanTreatOrderHFS.Count(); i++)
+				{
+					sumPlans += sumPlanTreatOrderHFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderHFS[i - 1], sumPlanTreatOrderHFS[i]);
+				}
 			}
 
-			sumPlans += "\n\nFFS" + "\n\n" + sumPlanTreatOrderFFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderFFS[0]);
+            if (sumPlanTreatOrderFFS.Count() >= 1)
+            {
+				sumPlans += "\n\nFFS" + "\n\n" + sumPlanTreatOrderFFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderFFS[0]);
 
-			for (int i = 1; i < sumPlanTreatOrderFFS.Count(); i++)
-			{
-				sumPlans += sumPlanTreatOrderFFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderFFS[i - 1], sumPlanTreatOrderFFS[i]);
+				for (int i = 1; i < sumPlanTreatOrderFFS.Count(); i++)
+				{
+					sumPlans += sumPlanTreatOrderFFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderFFS[i - 1], sumPlanTreatOrderFFS[i]);
+				}
 			}
-
-
-
-
-
 			MessageBox.Show(sumPlans);
 		}
 
@@ -176,7 +168,8 @@ namespace VMS.TPS
         /// <param name="planCat"></param>
         private void CheckPlanCategory(PlanSetup plan, ref PlanCat planCat)
 		{
-            if (IsPlanElectron(plan))
+			
+			if (IsPlanElectron(plan))
             {
 				planCat = PlanCat.Electron;
 			}
@@ -184,9 +177,27 @@ namespace VMS.TPS
 			{
 				planCat = PlanCat.SBRT;
 			}
+			else if (plan.Course.Intent.Contains("TBI"))
+            {
+				planCat = GetTechniqueTBI(plan);
+			}
 		}
 
-		public bool IsPlanElectron(PlanSetup plan)
+        private PlanCat GetTechniqueTBI(PlanSetup plan)
+        {
+			string gd = plan.Beams.Where(b => !b.IsSetupField).First().GantryDirection.ToString();
+
+            if (gd.Contains("None"))
+			{
+				return PlanCat.TBI;	// Oldschool TBI
+            }
+            else
+            {
+				return PlanCat.TMI;
+            }
+		}
+
+        public bool IsPlanElectron(PlanSetup plan)
 		{
 			return plan.Beams.Where(b => !b.IsSetupField).Where(b => b.EnergyModeDisplayName.Contains("E")).Any();
 		}
@@ -363,7 +374,7 @@ namespace VMS.TPS
 				// Search for structure in structure set with same id as target volume and checks if type is PTV, defaults to null if criteria not met
 				Structure ptv = ss.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV").SingleOrDefault();
 				// Check if more than one PTV exists
-				int nrOfPTV = ss.Structures.Where(s => s.Id.Substring(0, 3) == "PTV").Where(s => s.DicomType == "PTV").Count();
+				int nrOfPTV = ss.Structures.Where(s => s.Id.Length > 4).Where(s => s.Id.Substring(0, 3) == "PTV").Where(s => s.DicomType == "PTV").Count();
 				if (ptv != null && Int32.TryParse(ptv.Id.Substring(3, 1), out number) && nrOfPTV > 1)
 				{
 					//Structure ctv = ss.Structures.Where(s => s.Id.Substring(0, 4) == ("CTV" + ptv.Id.Substring(3, 1))).Where(s => s.DicomType == "CTV").SingleOrDefault();
@@ -787,7 +798,7 @@ namespace VMS.TPS
 			{
 				cResults = "** Course intent is empty!";
 			}
-			else if (planCat == PlanCat.SBRT)
+			else if (planCat == PlanCat.SBRT && !plan.Course.Intent.Contains("SRT"))
 			{
 				cResults += "** Change course intent to SRT!";
 			}
@@ -1022,12 +1033,18 @@ namespace VMS.TPS
 		}
 
 
-		#endregion Treatment field naming convention
+        #endregion Treatment field naming convention
 
 
-		// ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
 
-		public string CheckSetupField(PlanSetup plan)
+        #region Set-up field checks
+
+
+
+
+        // ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
+
+        public string CheckSetupField(PlanSetup plan)
 		{
 			string cResults = "";
 			int countSetupfields = 0;
@@ -1177,13 +1194,15 @@ namespace VMS.TPS
 		}
 
 
-        // ********* 	Kontroll av diverse fältregler och "best practices"	********* 
-        // TODO: better sorting, maybe one general and then divided in categories (enum). Missing case for Static-I and MLC doseDynamic (IMRT)
+		#endregion
 
-        public string CheckFieldRules(PlanSetup plan)
+		// ********* 	Kontroll av diverse fältregler och "best practices"	********* 
+		// TODO: better sorting, maybe one general and then divided in categories (enum). Missing case for Static-I and MLC doseDynamic (IMRT)
+
+		private string CheckFieldRules(PlanSetup plan, PlanCat planCat )
 		{
-			string cResults = "";
-			string remarks = "";
+			string cResults = string.Empty;
+			string remarks = string.Empty;
 			int countFields = plan.Beams.Count();
 			int countSetupFields = plan.Beams.Where(b => b.IsSetupField).Count();
 			int countTreatFields = countFields - countSetupFields;
@@ -1195,6 +1214,18 @@ namespace VMS.TPS
 			int countArcCW = 0;
 			int countArcCCW = 0;                        // the absolute difference between CW and CCW should be less than two...
 			double beamOnTimeInSec = 0;
+
+
+
+
+			if (planCat == PlanCat.TMI)
+			{
+				remarks += CheckForCouchValuesTMI(plan);
+			}
+
+
+
+
 
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
@@ -1239,6 +1270,25 @@ namespace VMS.TPS
 			}
 			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n\n" + remarks;
 		}
+
+        private string CheckForCouchValuesTMI(PlanSetup plan)
+        {
+			string cResults = string.Empty;
+			string beamIdWithCouchValues = string.Empty;
+            foreach (var beam in plan.Beams)
+            {
+              if (!beam.ControlPoints[0].TableTopLateralPosition.ToString().Contains("NaN") || !beam.ControlPoints[0].TableTopLongitudinalPosition.ToString().Contains("NaN") || !beam.ControlPoints[0].TableTopVerticalPosition.ToString().Contains("NaN"))
+                {
+					beamIdWithCouchValues += beam.Id + ", " ;
+				}
+			}
+
+            if (beamIdWithCouchValues.Length > 0)
+            {
+				cResults = "* Please remove couch coordinates from the following fields: " + beamIdWithCouchValues.Substring(0, beamIdWithCouchValues.Length - 2) + ".\n\n";
+            }
+			return cResults;
+        }
 
         private double GetVmatEstimatedBeamOnTime(Beam beam)
         {
