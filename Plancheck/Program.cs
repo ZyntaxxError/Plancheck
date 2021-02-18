@@ -18,10 +18,10 @@ using System.CodeDom.Compiler;
 using System.Collections;
 
 
-/* TODO: create plan category (enum) and make category specific checks for tbi, sbrt, electron, etc
+/* TODO: 
  * TODO: 
  * TODO Plan sum; foreach plan: check, easier to do in build and wpf...
- * TODO: Check if verification plan exists only if plan status is planning approved 
+ * TODO: For dynamic plans; check if verification plan exists only if plan status is planning approved 
  * */
 
 namespace VMS.TPS
@@ -31,7 +31,7 @@ namespace VMS.TPS
 		public Script()
 		{
 		}
-
+		// plan categories
 		enum PlanCat
 		{
 			Unknown,
@@ -40,6 +40,7 @@ namespace VMS.TPS
 			CRT,
 			IMRT,
 			VMAT,
+			DynArc,
 			TBI,
 			TMI,
 			NoPlan
@@ -47,8 +48,6 @@ namespace VMS.TPS
 
 		public void Execute(ScriptContext context)
 		{
-
-
 			if ((context.PlanSumsInScope.FirstOrDefault() == null && context.PlanSetup == null) || context.StructureSet == null)
 			{
                 if (context.StructureSet == null)
@@ -826,7 +825,6 @@ namespace VMS.TPS
 						}
 					}
 				}
-
 			}
 			return cResults;
 		}
@@ -1230,7 +1228,7 @@ namespace VMS.TPS
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
 				cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\t";
-				cResults += Math.Round(GetVmatEstimatedBeamOnTime(beam)).ToString("0") + " s\t" + "\n";
+				cResults += Math.Round(GetVmatEstimatedBeamOnTime(beam),1).ToString("0.0") + " s\t" + "\n";
 				beamOnTimeInSec += GetVmatEstimatedBeamOnTime(beam);
 				if (!beam.Technique.Id.Contains("SRS") && IsPlanSRT(plan))
 				{
@@ -1295,12 +1293,53 @@ namespace VMS.TPS
 			double time = 0;
 			int maxDoseRate = beam.DoseRate / 60; // MU/s
 			double totalMU = beam.Meterset.Value;
-			int gantryMaxSpeed = 6;	// Nominal value for Truebeam in deg/s
+			int gantryMaxSpeed = 6; // Nominal value for Truebeam in deg/s
+			double jawSpeed = 12.5; // mm/s, hardcoded value, should get this from config
+			double cpTime; // Control point time
+			double timeOffset = 1.5; // added time for startup acceleration and beam stabilisation, empirical estimation
+			double[] deltaJaw = new double[4];
+
+			double jawMoveTime;
 
             for (int i = 1; i < beam.ControlPoints.Count(); i++)
             {
 				double deltaGantry = Math.Abs(beam.ControlPoints[i].GantryAngle - beam.ControlPoints[i-1].GantryAngle);
 				double deltaMU = totalMU * (beam.ControlPoints[i].MetersetWeight - beam.ControlPoints[i - 1].MetersetWeight);
+                if (beam.ControlPoints[i].JawPositions.X1 < beam.ControlPoints[i - 1].JawPositions.X1)
+                {
+					deltaJaw[0] = Math.Abs(beam.ControlPoints[i].JawPositions.X1 - beam.ControlPoints[i - 1].JawPositions.X1);
+                }
+                else
+                {
+					deltaJaw[0] = 0;
+				}
+                if (beam.ControlPoints[i].JawPositions.X2 > beam.ControlPoints[i - 1].JawPositions.X2)
+                {
+					deltaJaw[1] = Math.Abs(beam.ControlPoints[i].JawPositions.X2 - beam.ControlPoints[i - 1].JawPositions.X2);
+                }
+                else
+                {
+					deltaJaw[1] = 0;
+				}
+                if (beam.ControlPoints[i].JawPositions.Y1 < beam.ControlPoints[i - 1].JawPositions.Y1)
+                {
+				deltaJaw[2] = Math.Abs(beam.ControlPoints[i].JawPositions.Y1 - beam.ControlPoints[i - 1].JawPositions.Y1);
+				} else
+				{
+				deltaJaw[2] = 0;
+				}
+				if (beam.ControlPoints[i].JawPositions.Y2 > beam.ControlPoints[i - 1].JawPositions.Y2)
+				{
+					deltaJaw[3] = Math.Abs(beam.ControlPoints[i].JawPositions.Y2 - beam.ControlPoints[i - 1].JawPositions.Y2);
+				}
+				else
+				{
+					deltaJaw[3] = 0;
+				}
+				
+
+				jawMoveTime = deltaJaw.Max() / jawSpeed;
+
 				if (deltaGantry > 350)
                 {
                     if (beam.ControlPoints[i].GantryAngle < beam.ControlPoints[i - 1].GantryAngle)
@@ -1316,14 +1355,20 @@ namespace VMS.TPS
 				double doseRateMaxGantrySpeed = deltaMU / timeIfMaxGantrySpeed; // mu/s
 				if (doseRateMaxGantrySpeed > maxDoseRate)
                 {
-					time += deltaMU / maxDoseRate;
+					cpTime = deltaMU / maxDoseRate;
                 }
                 else
                 {
-					time += deltaMU / doseRateMaxGantrySpeed;
+					cpTime = deltaMU / doseRateMaxGantrySpeed;
 				}
+                if (jawMoveTime > cpTime)
+                {
+					cpTime = jawMoveTime;
+				}
+
+				time += cpTime;
             }
-			return time;
+			return time + timeOffset;
         }
 
 
