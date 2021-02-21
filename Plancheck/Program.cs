@@ -1229,7 +1229,7 @@ namespace VMS.TPS
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
 				cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\t";
-				cResults += Math.Round(GetEstimatedBeamOnTime(beam),2).ToString("0.00") + " s\t" + (beam.ControlPoints.Count()) +"\n";
+				cResults += Math.Round(GetEstimatedBeamOnTime(beam)).ToString("0") + " s\t" + (beam.ControlPoints.Count()) +"\n";
 				beamOnTimeInSec += GetEstimatedBeamOnTime(beam);
 				if (!beam.Technique.Id.Contains("SRS") && IsPlanSRT(plan))
 				{
@@ -1267,7 +1267,7 @@ namespace VMS.TPS
 			{
 				remarks += "** Check the arc directions! \t";
 			}
-			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n\n" + remarks;
+			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n\n" + "TreatTime: > " + Math.Round(GetEstimatedTreatmentTime(plan)/60, 1).ToString("0.0") + remarks;
 		}
 
         private string CheckForCouchValuesTMI(PlanSetup plan)
@@ -1289,6 +1289,7 @@ namespace VMS.TPS
 			return cResults;
         }
 
+
         private double GetEstimatedBeamOnTime(Beam beam)
         {
 			double time = 0;
@@ -1297,36 +1298,24 @@ namespace VMS.TPS
 			int gantryMaxSpeed = 6; // Nominal value for Truebeam in deg/s
 			double jawMaxSpeed = 12.5; // mm/s, hardcoded value, should get this from config
 			double[] cpTime = new double[beam.ControlPoints.Count()]; // Control point time
-			double[] gantrySpeed = new double[beam.ControlPoints.Count()]; // Control point time
-			double[] deltaGantry = new double[beam.ControlPoints.Count()]; // Control point time
+			double[] deltaGantry = new double[beam.ControlPoints.Count()];
+			double[] gantrySpeed = new double[beam.ControlPoints.Count()];
+			gantrySpeed[0] = 0;
 			double timeOffset = 0.5; // s, added time for startup beam stabilisation, empirical estimation
-			//double gantryAccDec;  // add term for gantry acceleration deceleration
-			
-			//TODO: separate into static,including EDW, and Dynamic
 			double jawMoveTime;
 
             for (int i = 1; i < beam.ControlPoints.Count(); i++)
             {
-				deltaGantry[i] = Math.Abs(beam.ControlPoints[i].GantryAngle - beam.ControlPoints[i-1].GantryAngle);
+
 				double deltaMU = totalMU * (beam.ControlPoints[i].MetersetWeight - beam.ControlPoints[i - 1].MetersetWeight);
 
+				deltaGantry[i] = DeltaAngle(beam.ControlPoints[i].GantryAngle,  beam.ControlPoints[i - 1].GantryAngle);
 
 				// time needed for jaw to open up aperture, should not affect gantry speed if maximum jaw speed is configured correctly ...
-				jawMoveTime = MaxDeltaJaw(beam.ControlPoints[i], beam.ControlPoints[i-1]) / jawMaxSpeed;
+				jawMoveTime = MaxDeltaJawExpandField(beam.ControlPoints[i], beam.ControlPoints[i - 1]) / jawMaxSpeed;
 
-				if (deltaGantry[i] > 350)
-                {
-                    if (beam.ControlPoints[i].GantryAngle < beam.ControlPoints[i - 1].GantryAngle)
-                    {
-						deltaGantry[i] = Math.Abs(beam.ControlPoints[i].GantryAngle + 360 - beam.ControlPoints[i - 1].GantryAngle);
-					}
-                    else
-                    {
-						deltaGantry[i] = Math.Abs(beam.ControlPoints[i].GantryAngle - (beam.ControlPoints[i - 1].GantryAngle + 360));
-					}
-				}
 				double timeIfMaxGantrySpeed = deltaGantry[i] / gantryMaxSpeed;		// s
-				double doseRateMaxGantrySpeed = deltaMU / timeIfMaxGantrySpeed; // mu/s
+				double doseRateMaxGantrySpeed = deltaMU / timeIfMaxGantrySpeed;		// mu/s
 				if (doseRateMaxGantrySpeed > maxDoseRate)
                 {
 					cpTime[i] = deltaMU / maxDoseRate;
@@ -1342,36 +1331,99 @@ namespace VMS.TPS
 
 				gantrySpeed[i] = deltaGantry[i] / cpTime[i];
 
-                // check for gantry acceleration
-                if (i < beam.ControlPoints.Count() - 1 && i > 1)
-                {
-					//take account of first controlpoint separately, from standstill to some speed
-					double deltaSpeed = gantrySpeed[i] - gantrySpeed[i - 1];
-					cpTime[i] += (Math.Pow(deltaSpeed,3) + Math.Pow(deltaSpeed, 2)) / 252;
-                } 
-
-
+				// check for gantry acceleration, account for time needed to accelerate from standstill to nominal gantryspeed at cp1
+				double deltaSpeed = Math.Abs(gantrySpeed[i] - gantrySpeed[i - 1]);
+				cpTime[i] += (Math.Pow(deltaSpeed, 3) + 2*Math.Pow(deltaSpeed, 2)) / 288;
 				time += cpTime[i];
-
-            }
-
-			// account for time needed to accelerate from standstill to nominal gantryspeed at cp1
-			double deltaSpeedCP1 = gantrySpeed[1];
-			time += Math.Pow(deltaSpeedCP1,2) / 36;
-
-
+			}
 
 			return time + timeOffset;
+
+		}
+
+
+		/// <summary>
+		/// Estimates treatment time (excl. imaging) when using field order according to Beam ID
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <returns></returns>
+		private double GetEstimatedTreatmentTime(PlanSetup plan)
+        {
+			double controlSeqTime;
+			double treatTime = 0;
+			double maxGantrySpeed = 6;      // deg/s
+			double maxJawSpeed = 12.5;      // mm/s
+			double manualBeamOnTime = 6; // s
+			List<double> mechMovementTime = new List<double>();
+			List<ControlPoint> cpFirst = new List<ControlPoint>();
+			List<ControlPoint> cpLast = new List<ControlPoint>();
+			List<Beam> beamsInOrder = new List<Beam>();
+			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
+            {
+				cpFirst.Add(beam.ControlPoints.First());
+				cpLast.Add(beam.ControlPoints.Last());
+				beamsInOrder.Add(beam);
+				treatTime += GetEstimatedBeamOnTime(beam);
+            }
+
+			// control sequens and energy change happens parallel with, and independent to, mechanical movements
+            for (int i = 1; i < cpFirst.Count(); i++)
+            {
+				mechMovementTime.Add(DeltaAngle(cpLast[i - 1].GantryAngle, cpFirst[i].GantryAngle)/maxGantrySpeed);
+				mechMovementTime.Add(MaxDeltaJaw(cpLast[i - 1], cpFirst[i]) / maxJawSpeed);
+                if (beamsInOrder[i-1].EnergyModeDisplayName.Equals(beamsInOrder[i]))
+                {
+					controlSeqTime = 10;
+                }
+                else
+                {
+					controlSeqTime = 20;
+                }
+
+                if (controlSeqTime > mechMovementTime.Max())
+                {
+					treatTime += controlSeqTime;
+                }
+                else
+                {
+					treatTime += mechMovementTime.Max();
+				}
+
+				mechMovementTime.Clear();
+
+				if (!AutomationPrerequisites(plan))
+				{
+					treatTime += manualBeamOnTime;
+				}
+
+			}
+				return treatTime;
+
+        }
+
+
+		private double DeltaAngle(Double angle1, Double angle2)
+        {
+			double dAngle = Math.Abs(angle2 - angle1);
+
+			if (dAngle > 180)
+            {
+				return 360 - dAngle;
+			}
+            else
+            {
+				return dAngle;
+			}
         }
 
 		/// <summary>
-		/// gets the maximum distance any jaw travels between two control points in mm.
-		/// NOTE: only when opening up the aperture
+		/// ONLY used for calculating jaw tracking time, gets the maximum distance any jaw travels between two control points in mm.
+		/// NOTE: ONLY WHEN OPENING UP THE APERTURE
 		/// </summary>
 		/// <param name="cp2"></param>
 		/// <param name="cp1"></param>
 		/// <returns></returns>
-        private double MaxDeltaJaw(ControlPoint cp2, ControlPoint cp1)
+		private double MaxDeltaJawExpandField(ControlPoint cp2, ControlPoint cp1)
         {
 			double[] deltaJaw = new double[4];
 			if (cp2.JawPositions.X1 < cp1.JawPositions.X1)
@@ -1409,12 +1461,108 @@ namespace VMS.TPS
 			return deltaJaw.Max();
         }
 
+		/// <summary>
+		/// gets the maximum distance any jaw travels between two control points in mm.
+		/// </summary>
+		/// <param name="cp2"></param>
+		/// <param name="cp1"></param>
+		/// <returns></returns>
+		private double MaxDeltaJaw(ControlPoint cp2, ControlPoint cp1)
+		{
+			double[] deltaJaw = new double[4];
+
+				deltaJaw[0] = Math.Abs(cp2.JawPositions.X1 - cp1.JawPositions.X1);
+				deltaJaw[1] = Math.Abs(cp2.JawPositions.X2 - cp1.JawPositions.X2);
+				deltaJaw[2] = Math.Abs(cp2.JawPositions.Y1 - cp1.JawPositions.Y1);
+				deltaJaw[3] = Math.Abs(cp2.JawPositions.Y2 - cp1.JawPositions.Y2);
+
+			return deltaJaw.Max();
+		}
 
 
 
-        // ********* 	Kontroll av dosrat vid FFF	*********
 
-        public string CheckDoseRateFFF(Beam beam, ref int countDoseRateFFFRemarks)
+
+
+
+
+		private bool AutomationPrerequisites(PlanSetup plan) 
+		{
+			//TODO: Missing check for same accessories for all beams
+            if (SingleIsoInPlan(plan) && SingleCouchPosInPlan(plan) && SingleEnergyInPlan(plan))
+            {
+				return true;
+            }
+            else
+            {
+				return false;
+            }
+		}
+
+
+		private bool SingleIsoInPlan(PlanSetup plan)
+        {
+			bool sIso = true;
+			Beam firstBeam = plan.Beams.First();
+			foreach (var beam in plan.Beams)
+			{
+				if (beam.IsocenterPosition.x != firstBeam.IsocenterPosition.x || beam.IsocenterPosition.y != firstBeam.IsocenterPosition.y || beam.IsocenterPosition.z != firstBeam.IsocenterPosition.z)
+				{
+					sIso = false;
+					break;
+				}
+			}
+			return sIso;
+		}
+
+		private bool SingleEnergyInPlan(PlanSetup plan)
+		{
+			bool sEnergy = true;
+			Beam firstBeam = plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id).First();
+			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
+			{
+				if (!beam.EnergyModeDisplayName.Equals(firstBeam.EnergyModeDisplayName))
+				{
+					sEnergy = false;
+					break;
+				}
+			}
+			return sEnergy;
+		}
+
+		private bool SingleCouchPosInPlan(PlanSetup plan)
+		{
+			bool sCouch = true;
+			Beam firstBeam = plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id).First();
+            if (firstBeam.ControlPoints.First().PatientSupportAngle >= 345 || firstBeam.ControlPoints.First().PatientSupportAngle <= 15)
+            {
+				foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
+				{
+					if (beam.ControlPoints.First().PatientSupportAngle != firstBeam.ControlPoints.First().PatientSupportAngle)
+					{
+						sCouch = false;
+						break;
+					}
+
+				}
+            }
+            else
+            {
+				sCouch = false;
+			}
+			return sCouch;
+		}
+
+
+
+
+
+
+
+
+		// ********* 	Kontroll av dosrat vid FFF	*********
+
+		public string CheckDoseRateFFF(Beam beam, ref int countDoseRateFFFRemarks)
 		{
 			string cResults = "";
 
