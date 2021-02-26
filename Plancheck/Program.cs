@@ -1258,10 +1258,6 @@ namespace VMS.TPS
 				{
 					countArcCW++;
 				}
-				if (countTreatFields == 1 && beam.Technique.Id.Contains("ARC"))
-				{
-					remarks += CheckArcStartStop(beam);
-				}
 			}
 			if (Math.Abs(countArcCCW - countArcCW) > 1)
 			{
@@ -1290,70 +1286,126 @@ namespace VMS.TPS
         }
 
 
-        private double GetEstimatedBeamOnTime(Beam beam)
-        {
+
+		private double GetEstimatedBeamOnTime(Beam beam)
+		{
 			double time = 0;
 			int maxDoseRate = beam.DoseRate / 60; // MU/s
 			double totalMU = beam.Meterset.Value;
+			double deltaMU;
 			int gantryMaxSpeed = 6; // Nominal value for Truebeam in deg/s
-			double jawMaxSpeed = 12.5; // mm/s, hardcoded value, should get this from config
-			double[] cpTime = new double[beam.ControlPoints.Count()]; // Control point time
-			double[] deltaGantry = new double[beam.ControlPoints.Count()];
-			double[] gantrySpeed = new double[beam.ControlPoints.Count()];
+			double jawMaxSpeed = 25; // mm/s, hardcoded value, should get this from config
+			int nrOfJaws = 4;
+
+			int nrCP = beam.ControlPoints.Count();
+			double[] cpTime = new double[nrCP]; // Control point time
+			double[] deltaGantry = new double[nrCP];
+			double[] gantrySpeed = new double[nrCP];
+			double[] jawSpeedX1 = new double[nrCP];
+			double[] jawSpeedX2 = new double[nrCP];
+			double[] jawSpeedY1 = new double[nrCP];
+			double[] jawSpeedY2 = new double[nrCP];
+
+			double[,] deltaJaw = new double[nrCP, nrOfJaws];
+			double[,] jawSpeed = new double[nrCP, nrOfJaws];
+			double[] timeJaw = new double[nrOfJaws];
+			double[] deltaJawSpeed = new double[nrOfJaws];
+            for (int i = 0; i < nrOfJaws; i++)
+            {
+				jawSpeed[0, i] = 0;
+            }
+			
+			double timeGantry;
 			gantrySpeed[0] = 0;
+			jawSpeedX1[0] = 0;
+			jawSpeedX2[0] = 0;
+			jawSpeedY1[0] = 0;
+			jawSpeedY2[0] = 0;
+
+			double deltaSpeedGantry;
+
 			double timeOffset = 0.5; // s, added time for startup beam stabilisation, empirical estimation
-			double jawMoveTime;
+
+			// Assumptions: dose rate modulation is instant. MLC-speed and acceleration not an issue.
 
             for (int i = 1; i < beam.ControlPoints.Count(); i++)
             {
+				// TODO: ignore time for negative acceleration (deceleration) of gantry?
+				// NEED TO INCLUDE TIME IN ACCELERATION TERM
 
-				double deltaMU = totalMU * (beam.ControlPoints[i].MetersetWeight - beam.ControlPoints[i - 1].MetersetWeight);
+				// time needed to deliver the delta MU with specified dose rate
+				deltaMU = totalMU * (beam.ControlPoints[i].MetersetWeight - beam.ControlPoints[i - 1].MetersetWeight);
+				cpTime[i] = deltaMU / maxDoseRate; // temp assign time for control point
 
+				// minimum time needed for gantry to move between control points at max gantry speed including term for acceleration
 				deltaGantry[i] = DeltaAngle(beam.ControlPoints[i].GantryAngle,  beam.ControlPoints[i - 1].GantryAngle);
+				deltaSpeedGantry = Math.Abs(gantryMaxSpeed - gantrySpeed[i - 1]);
+				timeGantry = deltaGantry[i] / gantryMaxSpeed + GantryAcceleration(deltaSpeedGantry);      // s
 
-				// time needed for jaw to open up aperture, should not affect gantry speed if maximum jaw speed is configured correctly ...
-				jawMoveTime = MaxDeltaJawExpandField(beam.ControlPoints[i], beam.ControlPoints[i - 1]) / jawMaxSpeed;
-
-				double timeIfMaxGantrySpeed = deltaGantry[i] / gantryMaxSpeed;		// s
-				double doseRateMaxGantrySpeed = deltaMU / timeIfMaxGantrySpeed;		// mu/s
-				if (doseRateMaxGantrySpeed > maxDoseRate)
+				if (timeGantry > cpTime[i]) 
                 {
-					cpTime[i] = deltaMU / maxDoseRate;
+					cpTime[i] = timeGantry;
                 }
-                else
-                {
-					cpTime[i] = deltaMU / doseRateMaxGantrySpeed;
+
+				// jaw move time. deltajaw has sign, need to consider sign for speed change
+				deltaJaw[i, 0] = beam.ControlPoints[i].JawPositions.X1 - beam.ControlPoints[i - 1].JawPositions.X1;
+				deltaJaw[i, 1] = beam.ControlPoints[i].JawPositions.X2 - beam.ControlPoints[i - 1].JawPositions.X2;
+				deltaJaw[i, 2] = beam.ControlPoints[i].JawPositions.Y1 - beam.ControlPoints[i - 1].JawPositions.Y1;
+				deltaJaw[i, 3] = beam.ControlPoints[i].JawPositions.Y2 - beam.ControlPoints[i - 1].JawPositions.Y2;
+
+				for (int j = 0; j < nrOfJaws; j++)
+				{
+					deltaJawSpeed[j] = Math.Abs(jawMaxSpeed * deltaJaw[i, j] / Math.Abs(deltaJaw[i, j]) - jawSpeed[i - 1, j]);
+					timeJaw[j] = Math.Abs(deltaJaw[i, j]) / jawMaxSpeed + JawAcceleration(deltaJawSpeed[j]);      // s
 				}
-                if (jawMoveTime > cpTime[i])
+
+
+                if (timeJaw.Max() > cpTime[i])
                 {
-					cpTime[i] = jawMoveTime;
-				}
+					cpTime[i] = timeJaw.Max();
+                }
+
+				// need to recalculate gantry and jaw speed from the resulting control point time to use for next control point
 
 				gantrySpeed[i] = deltaGantry[i] / cpTime[i];
 
-				// check for gantry acceleration, account for time needed to accelerate from standstill to nominal gantryspeed at cp1
-				double deltaSpeed = Math.Abs(gantrySpeed[i] - gantrySpeed[i - 1]);
-				cpTime[i] += (Math.Pow(deltaSpeed, 3) + 2*Math.Pow(deltaSpeed, 2)) / 288;
+                for (int j = 0; j < nrOfJaws; j++)
+                {
+					jawSpeed[i, j] = deltaJaw[i, j] / cpTime[i];
+                }
+
 				time += cpTime[i];
 			}
 
 			return time + timeOffset;
-
 		}
 
+        private static double JawAcceleration(double deltaSpeedJaw)
+        {
+			double[] jawAccConst = new double[2] { 1.0, 1.0 };
+			return (jawAccConst[0] * Math.Pow(deltaSpeedJaw, 3) + jawAccConst[1] * Math.Pow(deltaSpeedJaw, 2)) / 288;
+		}
 
-		/// <summary>
-		/// Estimates treatment time (excl. imaging) when using field order according to Beam ID
-		/// </summary>
-		/// <param name="plan"></param>
-		/// <returns></returns>
-		private double GetEstimatedTreatmentTime(PlanSetup plan)
+        private static double GantryAcceleration(double deltaSpeedGantry)
+        {
+			double[] gantyAccConst = new double[2] { 1.0, 1.0 };
+			return (gantyAccConst[0] * Math.Pow(deltaSpeedGantry, 3) + gantyAccConst[1] * Math.Pow(deltaSpeedGantry, 2)) / 288;
+        }
+
+
+        /// <summary>
+        /// Estimates treatment time (excl. imaging) when using field order according to Beam ID
+        /// </summary>
+        /// <param name="plan"></param>
+        /// <returns></returns>
+        private double GetEstimatedTreatmentTime(PlanSetup plan)
         {
 			double controlSeqTime;
 			double treatTime = 0;
 			double maxGantrySpeed = 6;      // deg/s
 			double maxJawSpeed = 12.5;      // mm/s
-			double manualBeamOnTime = 6; // s
+			double manualBeamOnTime = 6;    // s , estimation of time needed to manually push beam on, as opposed to automation
+
 			List<double> mechMovementTime = new List<double>();
 			List<ControlPoint> cpFirst = new List<ControlPoint>();
 			List<ControlPoint> cpLast = new List<ControlPoint>();
@@ -1416,50 +1468,7 @@ namespace VMS.TPS
 			}
         }
 
-		/// <summary>
-		/// ONLY used for calculating jaw tracking time, gets the maximum distance any jaw travels between two control points in mm.
-		/// NOTE: ONLY WHEN OPENING UP THE APERTURE
-		/// </summary>
-		/// <param name="cp2"></param>
-		/// <param name="cp1"></param>
-		/// <returns></returns>
-		private double MaxDeltaJawExpandField(ControlPoint cp2, ControlPoint cp1)
-        {
-			double[] deltaJaw = new double[4];
-			if (cp2.JawPositions.X1 < cp1.JawPositions.X1)
-			{
-				deltaJaw[0] = Math.Abs(cp2.JawPositions.X1 - cp1.JawPositions.X1);
-			}
-			else
-			{
-				deltaJaw[0] = 0;
-			}
-			if (cp2.JawPositions.X2 > cp1.JawPositions.X2)
-			{
-				deltaJaw[1] = Math.Abs(cp2.JawPositions.X2 - cp1.JawPositions.X2);
-			}
-			else
-			{
-				deltaJaw[1] = 0;
-			}
-			if (cp2.JawPositions.Y1 < cp1.JawPositions.Y1)
-			{
-				deltaJaw[2] = Math.Abs(cp2.JawPositions.Y1 - cp1.JawPositions.Y1);
-			}
-			else
-			{
-				deltaJaw[2] = 0;
-			}
-			if (cp2.JawPositions.Y2 > cp1.JawPositions.Y2)
-			{
-				deltaJaw[3] = Math.Abs(cp2.JawPositions.Y2 - cp1.JawPositions.Y2);
-			}
-			else
-			{
-				deltaJaw[3] = 0;
-			}
-			return deltaJaw.Max();
-        }
+
 
 		/// <summary>
 		/// gets the maximum distance any jaw travels between two control points in mm.
@@ -1478,10 +1487,6 @@ namespace VMS.TPS
 
 			return deltaJaw.Max();
 		}
-
-
-
-
 
 
 
@@ -1554,12 +1559,6 @@ namespace VMS.TPS
 		}
 
 
-
-
-
-
-
-
 		// ********* 	Kontroll av dosrat vid FFF	*********
 
 		public string CheckDoseRateFFF(Beam beam, ref int countDoseRateFFFRemarks)
@@ -1603,6 +1602,7 @@ namespace VMS.TPS
 			}
 			return cResults;
 		}
+
 		public bool anyWedgesInPlan(PlanSetup plan)
 		{
 			bool anyWedgesInPlan = false;
@@ -1629,23 +1629,6 @@ namespace VMS.TPS
 			}
 			return cResults;
 		}
-
-		// ********* 	Kontroll av start och stop-vinkel vid Arc och enbart ett fält, bör helst (om inte fullvarv) stanna ovan pat ********
-
-		public string CheckArcStartStop(Beam beam)
-		{
-			string cResults = "";
-			double start = beam.ControlPoints.First().GantryAngle;
-			double stop = beam.ControlPoints.Last().GantryAngle;
-			if ((start > 270.0 || start < 90.0) && (stop > 90.0 && stop < 270.0))
-			{
-				cResults = "* Consider reversing arc direction to make the gantry stop above the patient when treatment is finished. \n";
-			}
-			return cResults;
-		}
-
-
-
 
 
 	}
