@@ -16,6 +16,7 @@ using System.IO;
 using System.Diagnostics;
 using System.CodeDom.Compiler;
 using System.Collections;
+using System.Text;
 
 
 /* TODO: 
@@ -1322,6 +1323,11 @@ namespace VMS.TPS
 			jawSpeedY1[0] = 0;
 			jawSpeedY2[0] = 0;
 
+
+			StringBuilder controlPointList = new StringBuilder();
+
+			controlPointList.AppendLine("CP\tt\tdG\tGspeed\tdX1\tdX2\tdY1\tdY2");
+
 			double deltaSpeedGantry;
 
 			double timeOffset = 0.5; // s, added time for startup beam stabilisation, empirical estimation
@@ -1373,9 +1379,21 @@ namespace VMS.TPS
                 {
 					jawSpeed[i, j] = deltaJaw[i, j] / cpTime[i];
                 }
+				double dR = deltaMU / cpTime[i];		// calculation of doserate to compare with log files
 
 				time += cpTime[i];
+
+
+				controlPointList.AppendLine(i + "\t" + cpTime[i].ToString("0.00") + "\t" + deltaGantry[i].ToString("0.0") + "\t" + gantrySpeed[i].ToString("0.0") + "\t");
+                for (int j = 0; j < nrOfJaws; j++)
+                {
+					controlPointList.Append(deltaJaw[i, j].ToString("0.0") + "\t");
+                }
 			}
+
+			string cpInfo = controlPointList.ToString();
+
+			MessageBox.Show(cpInfo);
 
 			return time + timeOffset;
 		}
