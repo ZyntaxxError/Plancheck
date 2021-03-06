@@ -1044,7 +1044,7 @@ namespace VMS.TPS
 
         // ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
 
-        public string CheckSetupField(PlanSetup plan)
+        private string CheckSetupField(PlanSetup plan)
 		{
 			string cResults = "";
 			int countSetupfields = 0;
