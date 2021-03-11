@@ -33,14 +33,14 @@ namespace VMS.TPS
 	// to calculate a fair estimation of beam-on time.
 	public static class Machine
 	{
-		public const int GantryMaxSpeed = 60;
+		public const int GantryMaxSpeed = 6;
 		public const int CollMaxSpeed = 60;  // TODO: TBD
 		public const float JawYMaxSpeed = 22.5f;  
 		public const float JawXMaxSpeed = 22.5f;
-		public const int GantryMaxAcc = 30;// deg/s^2 
+		public const int GantryMaxAcc = 16;// deg/s^2 
 		public const int CollMaxAcc = 6;  // TODO: TBD
 		public const int JawYMaxAcc = 60; // mm/s^2
-		public const int JawXMaxAcc = 180; // mm/s^2
+		public const int JawXMaxAcc = 170; // mm/s^2
 		public enum Axis
 		{
 			Gantry,
@@ -1316,8 +1316,8 @@ namespace VMS.TPS
 			int maxDoseRate = beam.DoseRate / 60; // MU/s
 			double totalMU = beam.Meterset.Value;
 			double deltaMU;
-			int gantryMaxSpeed = 6; // Nominal value for Truebeam in deg/s
-			double jawMaxSpeed = 22.5; // mm/s, from Trajectory logs, actually 25 mm/s for Y1 and Y2 when increasing field size 
+
+			//double jawMaxSpeed = 22.5; // mm/s, from Trajectory logs, actually 25 mm/s for Y1 and Y2 when increasing field size 
 
 			int nrOfJaws = 4;
 
@@ -1351,7 +1351,7 @@ namespace VMS.TPS
 
 			controlPointList.AppendLine("CP\tt\tdG\tGspeed\tdX1\tdX2\tdY1\tdY2");
 
-			double deltaSpeedGantry;
+
 
 			double timeOffset = 0.5; // s, added time for startup beam stabilisation, empirical estimation
 
@@ -1368,8 +1368,9 @@ namespace VMS.TPS
 
 				// minimum time needed for gantry to move between control points at max gantry speed including term for acceleration
 				deltaGantry[i] = DeltaAngle(beam.ControlPoints[i].GantryAngle,  beam.ControlPoints[i - 1].GantryAngle);
-				deltaSpeedGantry = Math.Abs(gantryMaxSpeed - gantrySpeed[i - 1]);
-				timeGantry = deltaGantry[i] / gantryMaxSpeed + GantryAcceleration(deltaSpeedGantry);      // s
+
+
+				timeGantry = GetMinTravelTime(deltaGantry[i], gantrySpeed[i - 1], Machine.Axis.Gantry);
 
 				if (timeGantry > cpTime[i]) 
                 {
@@ -1403,8 +1404,8 @@ namespace VMS.TPS
                 }
 
 
-
 				// need to recalculate gantry and jaw speed from the resulting control point time to use for next control point
+				// this is completely wrong... problably need to study how the control system acts between control points
 
 				gantrySpeed[i] = deltaGantry[i] / cpTime[i];
 
@@ -1412,16 +1413,16 @@ namespace VMS.TPS
                 {
 					jawSpeed[i, j] = deltaJaw[i, j] / cpTime[i];
                 }
-				double dR = deltaMU / cpTime[i];		// calculation of doserate to compare with log files
+				double dR = deltaMU * 60 / cpTime[i];		// calculation of doserate to compare with log files MU/min
 
 				time += cpTime[i];
 
 
-				controlPointList.AppendLine(i + "\t" + cpTime[i].ToString("0.00") + "\t" + deltaGantry[i].ToString("0.0") + "\t" + gantrySpeed[i].ToString("0.0") + "\t");
-                for (int j = 0; j < nrOfJaws; j++)
+				controlPointList.AppendLine(i + "\t" + cpTime[i].ToString("0.00") + "\t" + deltaGantry[i].ToString("0.0") + "\tGspeed:" + gantrySpeed[i].ToString("0.0") + "\t" + dR);
+               /* for (int j = 0; j < nrOfJaws; j++)
                 {
 					controlPointList.Append(deltaJaw[i, j].ToString("0.0") + "\t");
-                }
+                }*/
 			}
 
 			string cpInfo = controlPointList.ToString();
@@ -1490,11 +1491,6 @@ namespace VMS.TPS
 
 
 
-        private static double GantryAcceleration(double deltaSpeedGantry)
-        {
-			double[] gantyAccConst = new double[2] { 1.0, 1.0 };
-			return (gantyAccConst[0] * Math.Pow(deltaSpeedGantry, 3) + gantyAccConst[1] * Math.Pow(deltaSpeedGantry, 2)) / 288;
-        }
 
 		/*
 		 * Index	Meterset Weight	X1 [cm]	X2 [cm]	Y1 [cm]	Y2 [cm]	Gantry Rtn [deg]	Dose Rate [MU/min]	Gantry Speed [deg/s]	MU/deg
