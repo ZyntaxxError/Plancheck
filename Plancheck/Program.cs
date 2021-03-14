@@ -1,7 +1,7 @@
 ////////////////////////////////////////////////////////////////////////////////
 //  SRTcheck.cs
 //
-//  ESAPI v15.5 Script for simple plan parameter checks
+//  ESAPI v16.1 Script for simple plan parameter checks
 //  
 ////////////////////////////////////////////////////////////////////////////////
 
@@ -33,14 +33,15 @@ namespace VMS.TPS
 	// to calculate a fair estimation of beam-on time.
 	public static class Machine
 	{
-		public const int GantryMaxSpeed = 6;
+		public const int GantryMaxSpeed = 6;  // deg/s
 		public const int CollMaxSpeed = 60;  // TODO: TBD
-		public const float JawYMaxSpeed = 22.5f;  
+		public const float JawYMaxSpeed = 22.5f;
 		public const float JawXMaxSpeed = 22.5f;
 		public const int GantryMaxAcc = 16;// deg/s^2 
 		public const int CollMaxAcc = 6;  // TODO: TBD
 		public const int JawYMaxAcc = 60; // mm/s^2
-		public const int JawXMaxAcc = 170; // mm/s^2
+		public const int JawXMaxAcc = 160; // mm/s^2
+
 		public enum Axis
 		{
 			Gantry,
@@ -49,7 +50,230 @@ namespace VMS.TPS
 			X
 		}
 
+		public static readonly Dictionary<string, int> DoseRates = new Dictionary<string, int>
+			{
+				{ "6X", 600 },
+				{ "15X", 600 },
+				{ "6XFFF", 1400 },
+				{ "10XFFF", 2400 }
+			};
+
 	}
+
+
+		public class BeamExtraInfo  // TODO: check if this class is better as static methods only, extension class to beam? naming?
+	{
+		
+		public BeamExtraInfo(Beam beam)
+		{
+			Id = beam.Id;
+			EBOT = GetEstimatedBeamOnTime(beam);
+		}
+
+		public string Id { get; private set; }
+		public double EBOT { get; private set; }
+
+
+
+		/// <summary>
+		/// Calculates an estimated beam on time from control points in beam, works for dynamic as well as static fields. TODO: EDW unhandled, underestimates 
+		/// time for wedges, especially large fields (Y) with small number of MU, need to get the STT-tables and calculate this separately 
+		/// </summary>
+		/// <param name="beam"></param>
+		/// <returns></returns>
+		public double GetEstimatedBeamOnTime(Beam beam)
+		{
+			double timeOffset = 0.3; // s, added time for startup beam stabilisation, empirical estimation from trajectory logs
+			double time = 0;
+			int maxDoseRate = beam.DoseRate / 60; // MU/s
+			double totalMU = beam.Meterset.Value;
+			double deltaMU;
+
+			int nrOfJaws = 4;
+
+			int nrCP = beam.ControlPoints.Count();
+			double[] cpTime = new double[nrCP];
+			double[] deltaGantry = new double[nrCP];
+			double[] gantrySpeed = new double[nrCP];
+			double[] jawSpeedX1 = new double[nrCP];
+			double[] jawSpeedX2 = new double[nrCP];
+			double[] jawSpeedY1 = new double[nrCP];
+			double[] jawSpeedY2 = new double[nrCP];
+			double[] doseRate = new double[nrCP];
+
+			double[,] deltaJaw = new double[nrCP, nrOfJaws];
+			double[,] jawSpeed = new double[nrCP, nrOfJaws];
+			double[] timeJaw = new double[nrOfJaws];
+
+			for (int i = 0; i < nrOfJaws; i++)
+			{
+				jawSpeed[0, i] = 0;
+			}
+
+			double timeGantry;
+			gantrySpeed[0] = 0;
+			jawSpeedX1[0] = 0;
+			jawSpeedX2[0] = 0;
+			jawSpeedY1[0] = 0;
+			jawSpeedY2[0] = 0;
+
+			// debug list of control points, calculated time and axis speeds to compare with trajectory logs
+			StringBuilder controlPointList = new StringBuilder();
+			controlPointList.AppendLine("CP\tt\tG_S\tX1_S\tX2_S\tY1_S\tY2_S\tDR");
+
+
+			// Assumptions: dose rate modulation is instant. MLC-speed and acceleration not an issue (might be an issue for banks, also for larger MLC leaves, unknown).
+			// Time needed from one cp to the next is determined by the parameter that requires the most time, i.e calculate the minimum time needed for each axis
+
+			for (int i = 1; i < beam.ControlPoints.Count(); i++)
+			{
+
+				// time needed to deliver the delta MU with specified dose rate
+				deltaMU = totalMU * (beam.ControlPoints[i].MetersetWeight - beam.ControlPoints[i - 1].MetersetWeight);
+				cpTime[i] = deltaMU / maxDoseRate; // temp assign time for control point
+
+				// minimum time needed for gantry to move between control points at max gantry speed and max acceleration
+				deltaGantry[i] = DeltaAngle(beam.ControlPoints[i].GantryAngle, beam.ControlPoints[i - 1].GantryAngle);
+				timeGantry = GetMinTravelTime(deltaGantry[i], gantrySpeed[i - 1], Machine.Axis.Gantry);
+
+				if (timeGantry > cpTime[i])
+				{
+					cpTime[i] = timeGantry;
+				}
+
+				// jaw move time. deltajaw has sign, need to consider sign for speed change
+				deltaJaw[i, 0] = beam.ControlPoints[i].JawPositions.X1 - beam.ControlPoints[i - 1].JawPositions.X1;
+				deltaJaw[i, 1] = beam.ControlPoints[i].JawPositions.X2 - beam.ControlPoints[i - 1].JawPositions.X2;
+				deltaJaw[i, 2] = beam.ControlPoints[i].JawPositions.Y1 - beam.ControlPoints[i - 1].JawPositions.Y1;
+				deltaJaw[i, 3] = beam.ControlPoints[i].JawPositions.Y2 - beam.ControlPoints[i - 1].JawPositions.Y2;
+
+				for (int j = 0; j < nrOfJaws; j++)
+				{
+					if (j < 2)
+					{
+						timeJaw[j] = GetMinTravelTime(deltaJaw[i, j], jawSpeed[i - 1, j], Machine.Axis.X);     // s
+					}
+					else
+					{
+						timeJaw[j] = GetMinTravelTime(deltaJaw[i, j], jawSpeed[i - 1, j], Machine.Axis.Y);     // s
+					}
+				}
+
+				if (timeJaw.Max() > cpTime[i])
+				{
+					cpTime[i] = timeJaw.Max();
+				}
+
+
+				// need to recalculate gantry and jaw speed from the resulting control point time to use for next control point
+				// this might be completely off... problably need to study how the control system acts between control points
+
+				gantrySpeed[i] = deltaGantry[i] / cpTime[i];
+
+				for (int j = 0; j < nrOfJaws; j++)
+				{
+					jawSpeed[i, j] = deltaJaw[i, j] / cpTime[i];
+				}
+
+
+				time += cpTime[i];
+
+				//debug list of control points
+				controlPointList.AppendLine(i + "\t" + cpTime[i].ToString("0.00") + "\t" + "\tGspeed:" + gantrySpeed[i].ToString("0.0"));
+				for (int j = 0; j < nrOfJaws; j++)
+				 {
+					 controlPointList.Append(deltaJaw[i, j].ToString("0.0") + "\t");
+				 }
+				doseRate[i] = deltaMU * 60 / cpTime[i];     // calculation of doserate to compare with log files MU/min
+				controlPointList.Append("\t" + doseRate[i]);
+
+			}
+
+			string cpInfo = controlPointList.ToString();
+
+			MessageBox.Show(cpInfo);
+
+			return time + timeOffset;
+		}
+
+
+		/// <summary>
+		/// Calculates minimum time required to move an axis a distance s. 
+		/// </summary>
+		/// <param name="s"></param>
+		/// <param name="v0"></param>
+		/// <param name="axis"></param>
+		/// <returns></returns>
+		private double GetMinTravelTime(double s, double v0, Machine.Axis axis)
+		{
+			double vMax = 1, a = 1, t;
+			switch (axis)
+			{
+				case Machine.Axis.Gantry:
+					vMax = Machine.GantryMaxSpeed;
+					a = Machine.GantryMaxAcc;
+					break;
+				case Machine.Axis.Y:
+					vMax = Machine.JawYMaxSpeed;
+					a = Machine.JawYMaxAcc;
+					break;
+				case Machine.Axis.X:
+					vMax = Machine.JawXMaxSpeed;
+					a = Machine.JawXMaxAcc;
+					break;
+			}
+
+			//The sign of s, vmax and acceleration should always be the same
+
+			int movementDirection = (int)(s / Math.Abs(s));
+
+			vMax *= movementDirection;
+			a *= movementDirection;
+
+			// need to solve a second degree equation to get time
+
+			double rot = Math.Sqrt((v0 / a) * (v0 / a) + 2 * s / a);
+			t = -v0 / a;
+			if (t - rot < 0)
+			{
+				t += rot;
+			}
+			else
+			{
+				t -= rot;
+			}
+
+			// if the calculated time is longer than the time it takes to reach vmax, i.e if resulting v > vmax
+
+			if (a * t + v0 > vMax)
+			{
+				double t1 = (vMax - v0) / a; // time it takes to reach vmax
+				double s1 = (a * t1 * t1) / 2 + v0 * t1; // distance traveled when vmax is reached
+
+				t = t1 + (s - s1) / vMax; // add time to travel remaining distance (s-s1) at constant velocity vmax
+			}
+			return t;
+		}
+
+
+
+		private double DeltaAngle(Double angle1, Double angle2)
+		{
+			double dAngle = Math.Abs(angle2 - angle1);
+
+			if (dAngle > 180)
+			{
+				return 360 - dAngle;
+			}
+			else
+			{
+				return dAngle;
+			}
+		}
+
+	}
+
+
 	class Script
 	{
 		public Script()
@@ -1251,9 +1475,14 @@ namespace VMS.TPS
 
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
+				BeamExtraInfo beamExtras = new BeamExtraInfo(beam);
+
 				cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\t";
 				cResults += Math.Round(GetEstimatedBeamOnTime(beam)).ToString("0") + " s\t" + (beam.ControlPoints.Count()) +"\n";
 				beamOnTimeInSec += GetEstimatedBeamOnTime(beam);
+				
+
+
 				if (!beam.Technique.Id.Contains("SRS") && IsPlanSRT(plan))
 				{
 					if (countSRSRemarks < 1) { remarks = remarks + "** Change technique to SRS-" + beam.Technique.Id + "! \n"; };
@@ -1309,31 +1538,38 @@ namespace VMS.TPS
         }
 
 
-
+		/// <summary>
+		/// Calculates an estimated beam on time from control points in beam, works for dynamic as well as static fields. TODO: EDW unhandled, underestimates 
+		/// time for wedges, espesially large fields (Y) with small number of MU, need to get the STT-tables and calculate this separately 
+		/// </summary>
+		/// <param name="beam"></param>
+		/// <returns></returns>
 		private double GetEstimatedBeamOnTime(Beam beam)
 		{
+			double timeOffset = 0.3; // s, added time for startup beam stabilisation, empirical estimation from trajectory logs
 			double time = 0;
 			int maxDoseRate = beam.DoseRate / 60; // MU/s
 			double totalMU = beam.Meterset.Value;
 			double deltaMU;
 
-			//double jawMaxSpeed = 22.5; // mm/s, from Trajectory logs, actually 25 mm/s for Y1 and Y2 when increasing field size 
+			
 
 			int nrOfJaws = 4;
 
 			int nrCP = beam.ControlPoints.Count();
-			double[] cpTime = new double[nrCP]; // Control point time
+			double[] cpTime = new double[nrCP];
 			double[] deltaGantry = new double[nrCP];
 			double[] gantrySpeed = new double[nrCP];
 			double[] jawSpeedX1 = new double[nrCP];
 			double[] jawSpeedX2 = new double[nrCP];
 			double[] jawSpeedY1 = new double[nrCP];
 			double[] jawSpeedY2 = new double[nrCP];
+			double[] doseRate = new double[nrCP];
 
 			double[,] deltaJaw = new double[nrCP, nrOfJaws];
 			double[,] jawSpeed = new double[nrCP, nrOfJaws];
 			double[] timeJaw = new double[nrOfJaws];
-			double[] deltaJawSpeed = new double[nrOfJaws];
+			//double[] deltaJawSpeed = new double[nrOfJaws];
             for (int i = 0; i < nrOfJaws; i++)
             {
 				jawSpeed[0, i] = 0;
@@ -1352,15 +1588,11 @@ namespace VMS.TPS
 			controlPointList.AppendLine("CP\tt\tdG\tGspeed\tdX1\tdX2\tdY1\tdY2");
 
 
-
-			double timeOffset = 0.5; // s, added time for startup beam stabilisation, empirical estimation
-
 			// Assumptions: dose rate modulation is instant. MLC-speed and acceleration not an issue (could be an issue for banks, also for larger MLC leaves, unknown).
 			// time needed from one cp to the next is determined by the parameter that requires the most time, i.e calculate the minimum time needed for each axis
 
 			for (int i = 1; i < beam.ControlPoints.Count(); i++)
             {
-
 
 				// time needed to deliver the delta MU with specified dose rate
 				deltaMU = totalMU * (beam.ControlPoints[i].MetersetWeight - beam.ControlPoints[i - 1].MetersetWeight);
@@ -1368,8 +1600,6 @@ namespace VMS.TPS
 
 				// minimum time needed for gantry to move between control points at max gantry speed including term for acceleration
 				deltaGantry[i] = DeltaAngle(beam.ControlPoints[i].GantryAngle,  beam.ControlPoints[i - 1].GantryAngle);
-
-
 				timeGantry = GetMinTravelTime(deltaGantry[i], gantrySpeed[i - 1], Machine.Axis.Gantry);
 
 				if (timeGantry > cpTime[i]) 
@@ -1377,13 +1607,11 @@ namespace VMS.TPS
 					cpTime[i] = timeGantry;
                 }
 
-				
 				// jaw move time. deltajaw has sign, need to consider sign for speed change
 				deltaJaw[i, 0] = beam.ControlPoints[i].JawPositions.X1 - beam.ControlPoints[i - 1].JawPositions.X1;
 				deltaJaw[i, 1] = beam.ControlPoints[i].JawPositions.X2 - beam.ControlPoints[i - 1].JawPositions.X2;
 				deltaJaw[i, 2] = beam.ControlPoints[i].JawPositions.Y1 - beam.ControlPoints[i - 1].JawPositions.Y1;
 				deltaJaw[i, 3] = beam.ControlPoints[i].JawPositions.Y2 - beam.ControlPoints[i - 1].JawPositions.Y2;
-
 
 				for (int j = 0; j < nrOfJaws; j++)
 				{
@@ -1397,7 +1625,6 @@ namespace VMS.TPS
 					}
 				}
 
-
                 if (timeJaw.Max() > cpTime[i])
                 {
 					cpTime[i] = timeJaw.Max();
@@ -1405,7 +1632,7 @@ namespace VMS.TPS
 
 
 				// need to recalculate gantry and jaw speed from the resulting control point time to use for next control point
-				// this is completely wrong... problably need to study how the control system acts between control points
+				// this might be completely off... problably need to study how the control system acts between control points
 
 				gantrySpeed[i] = deltaGantry[i] / cpTime[i];
 
@@ -1413,12 +1640,12 @@ namespace VMS.TPS
                 {
 					jawSpeed[i, j] = deltaJaw[i, j] / cpTime[i];
                 }
-				double dR = deltaMU * 60 / cpTime[i];		// calculation of doserate to compare with log files MU/min
+				doseRate[i] = deltaMU * 60 / cpTime[i];		// calculation of doserate to compare with log files MU/min
 
 				time += cpTime[i];
 
 
-				controlPointList.AppendLine(i + "\t" + cpTime[i].ToString("0.00") + "\t" + deltaGantry[i].ToString("0.0") + "\tGspeed:" + gantrySpeed[i].ToString("0.0") + "\t" + dR);
+				controlPointList.AppendLine(i + "\t" + cpTime[i].ToString("0.00") + "\t" + deltaGantry[i].ToString("0.0") + "\tGspeed:" + gantrySpeed[i].ToString("0.0") + "\t" + doseRate[i]);
                /* for (int j = 0; j < nrOfJaws; j++)
                 {
 					controlPointList.Append(deltaJaw[i, j].ToString("0.0") + "\t");
@@ -1431,6 +1658,8 @@ namespace VMS.TPS
 
 			return time + timeOffset;
 		}
+
+
 		/// <summary>
 		/// Calculates minimum time required to move an axis a distance s. 
 		/// </summary>
@@ -1463,8 +1692,6 @@ namespace VMS.TPS
 
 			vMax *= movementDirection;
 			a *= movementDirection;
-
-
 
 			double rot = Math.Sqrt((v0 / a) * (v0 / a) + 2 * s / a);
 			t = -v0 / a;
@@ -1709,6 +1936,7 @@ namespace VMS.TPS
 				cpLast.Add(beam.ControlPoints.Last());
 				beamsInOrder.Add(beam);
 				treatTime += GetEstimatedBeamOnTime(beam);
+				
             }
 
 			// control sequens and energy change happens parallel with, and independent to, mechanical movements
@@ -1736,7 +1964,7 @@ namespace VMS.TPS
 
 				mechMovementTime.Clear();
 
-				if (!AutomationPrerequisites(plan))
+				if (AutomationPrerequisites(plan) == false)
 				{
 					treatTime += manualBeamOnTime;
 				}
