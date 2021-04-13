@@ -12,9 +12,6 @@ using System.Windows;
 using System.Linq;
 using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
-using System.IO;
-using System.Diagnostics;
-using System.CodeDom.Compiler;
 using System.Collections;
 using System.Text;
 
@@ -28,6 +25,128 @@ using System.Text;
 
 namespace VMS.TPS
 {
+
+    public class PatternGradient
+	{
+		public List<double> DistanceInMm { get; set; }
+		public List<int> GradientHUPerMm { get; set; }
+		public List<double> MinGradientLength { get; set; }
+		public List<int> PositionToleranceMm { get; set; }
+		public int GradIndexForCoord { get; set; }
+
+		static bool SameSign(double num1, double num2)
+		{
+			return num1 >= 0 && num2 >= 0 || num1 < 0 && num2 < 0;
+		}
+
+
+
+		/// <summary>
+		/// gives the Dicom-coordinates of a gradient 
+		/// </summary>
+		/// <param name="coord"> 1D coordinates of profile in mm</param>
+		/// <param name="val"> values of the profile</param>
+		/// <param name="valPermm"> Gradient to search for in value/mm with sign indicating direction</param>
+		/// <param name="dist"> Distance in mm to the next gradient</param>
+		/// <param name="posTolerance"> Tolerance of position of found gradient in mm</param>
+		/// <returns></returns>
+		public static double GetGradientCoordinates(List<double> coord, List<double> val, List<int> valPermm, List<double> dist, List<int> posTolerance, int indexToReturn)
+		{
+			string debug = "";
+			double[] grad = new double[coord.Count - 1];
+			double[] pos = new double[coord.Count - 1];
+			int index = 0;
+
+			double gradientStart;
+			double gradientEnd;
+			double gradientMiddle;
+			// resample profile to gradient with position inbetween profile points ( number of samples decreases with one)
+			for (int i = 0; i < coord.Count - 2; i++)
+			{
+				pos[i] = (coord[i] + coord[i + 1]) / 2;
+				grad[i] = (val[i + 1] - val[i]) / Math.Abs(coord[i + 1] - coord[i]);
+			}
+
+			List<double> gradPosition = new List<double>();
+			int indexToReturnToInCaseOfFail = 0;
+
+			for (int i = 0; i < pos.Count(); i++)
+			{
+				if (index == valPermm.Count())                        //break if last condition passed 
+				{
+					break;
+				}
+				// if gradient larger than given gradient and in the same direction
+				//if (Math.Abs((valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i])) > (Math.Abs(hUPerMm[index])) && SameSign(grad[i], hUPerMm[index]))
+				if (Math.Abs(grad[i]) > Math.Abs(valPermm[index]) && SameSign(grad[i], valPermm[index]))
+				{
+					gradientStart = pos[i];
+					gradientEnd = pos[i];
+
+					//Keep stepping up while gradient larger than given huPerMm
+					while (Math.Abs(grad[i]) > (Math.Abs(valPermm[index])) && SameSign(grad[i], valPermm[index]) && i < coord.Count - 2)
+					{
+						i++;
+						gradientEnd = pos[i];
+						if (index == 0)
+						{
+							indexToReturnToInCaseOfFail = i + 1; // if the search fails, i.e. can not find next gradient within the distance given, return to position directly after first gradient ends
+						}
+					}
+					gradientMiddle = (gradientStart + gradientEnd) / 2;
+					// if this is the first gradient (i.e. index == 0), cannot yet compare the distance between the gradients, step up index and continue
+					if (index == 0)
+					{
+						gradPosition.Add(gradientMiddle);
+						index++;
+					}
+					// if gradient found before expected position (outside tolerance), keep looking
+					else if (Math.Abs(gradientMiddle - gradPosition[index - 1]) < dist[index] - posTolerance[index] && i < pos.Count() - 2)
+					{
+						i++;
+						//MessageBox.Show(Math.Abs(gradientMiddle - gradPosition[index - 1]).ToString("0.0"));
+					}
+					// if next gradient not found within tolerance distance, means that the first gradient is probably wrong, reset index
+					else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) > (Math.Abs(dist[index]) + posTolerance[index])))
+					{
+						debug += "Fail " + (Math.Abs(gradientMiddle - gradPosition[index - 1])).ToString("0.0") + "\t" + (dist[index] + posTolerance[index]).ToString("0.0") + "\n";
+						gradPosition.Clear();
+						index = 0;
+						i = indexToReturnToInCaseOfFail;
+					}
+					//  compare the distance between the gradients to the criteria given, step up index and continue if within tolerance
+					else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) > (dist[index] - posTolerance[index])) && (Math.Abs(gradientMiddle - gradPosition[index - 1]) < (dist[index] + posTolerance[index])))
+					{
+						gradPosition.Add(gradientMiddle);
+						index++;
+						if (index == 1)
+						{
+							indexToReturnToInCaseOfFail = i;
+						}
+					}
+					else
+					{   // if not the first gradient and the distance betwen the gradients are not met within the tolerance; reset index and positions and continue search
+						// reset search from second gradient position to avoid missing the actual gradient.
+						if (gradPosition.Count > 1 && indexToReturnToInCaseOfFail > 0)
+						{
+							i = indexToReturnToInCaseOfFail;
+						}
+						gradPosition.Clear();
+						index = 0;
+					}
+				}
+			}
+			if (index == valPermm.Count())
+			{
+				return gradPosition[indexToReturn];
+			}
+			else
+			{
+				return 0.0;
+			}
+		} // end method 
+	}
+
 
 
 	public static class Conversion
@@ -120,7 +239,7 @@ namespace VMS.TPS
 		public const float JawXMaxSpeed = 22.5f;
 		public const int GantryMaxAcc = 16;// deg/s^2 
 		public const int CollMaxAcc = 6;  // TODO: TBD
-		public const int JawYMaxAcc = 60; // mm/s^2
+		public const int JawYMaxAcc = 50; // mm/s^2
 		public const int JawXMaxAcc = 160; // mm/s^2
 
 		public enum Axis
@@ -175,7 +294,7 @@ namespace VMS.TPS
 		/// <returns></returns>
 		public static double GetEstimatedBeamOnTime(Beam beam)
 		{
-			double timeOffset = 0.3; // s, added time for startup beam stabilisation, empirical estimation from trajectory logs
+			double timeOffset = 0.9; // s, added time for startup beam stabilisation 0.4 s, empirical estimation from trajectory logs. Stopping time last control point aproximated to 0.5 s
 			double time = 0;
 			int maxDoseRate = beam.DoseRate / 60; // MU/s
 			double totalMU = beam.Meterset.Value;
@@ -249,7 +368,8 @@ namespace VMS.TPS
 				}
 
 				// need to recalculate gantry and jaw speed from the resulting control point time to use for next control point
-				// TODO: this might be completely off... problably need to study how the control system acts between control points
+				// this might be completely off... problably need to study how the control system acts between control points, but closer
+				// to the truth than shown in control points in Eclipse
 
 				gantrySpeed[i] = deltaGantry[i] / cpTime[i];
 
@@ -272,7 +392,7 @@ namespace VMS.TPS
 
 			string cpInfo = controlPointList.ToString();
 
-			MessageBox.Show(cpInfo);
+			//MessageBox.Show(cpInfo);
 
 			return time + timeOffset;
 		}
@@ -304,11 +424,11 @@ namespace VMS.TPS
 					break;
 			}
 
-			//The sign of s, vmax and acceleration should always be the same
+			//The sign of s, vmax and acceleration should always be the same when calculating minimum time 
 			int movementDirection = (int)(s / Math.Abs(s));
 
 			vMax *= movementDirection;
-			a *= movementDirection;
+			a *= movementDirection;   
 
 			// need to solve a second degree equation to get time
 			double rot = Math.Sqrt((v0 / a) * (v0 / a) + 2 * s / a);
@@ -354,6 +474,12 @@ namespace VMS.TPS
 	}
 
 
+
+	//******************************************************************   SCRIPT START *************************************************
+
+
+
+
 	class Script
 	{
 		public Script()
@@ -374,10 +500,18 @@ namespace VMS.TPS
 			NoPlan
 		}
 
+		/// <summary>
+		/// SameSign; helper method to determine if two doubles have the same sign
+		/// </summary>
+		/// <param name="num1"></param>
+		/// <param name="num2"></param>
+		/// <returns></returns>
+
+
 
 		public void Execute(ScriptContext context)
 		{
-			if ((context.PlanSumsInScope.FirstOrDefault() == null && context.PlanSetup == null) || context.StructureSet == null)
+			if ((context.PlanSum == null && context.PlanSetup == null) || context.StructureSet == null)
 			{
                 if (context.StructureSet == null)
                 {
@@ -394,27 +528,28 @@ namespace VMS.TPS
 			}
 			else
 			{
-                    PlanSetup plan = context.PlanSetup;
-                    PlanCat planCat = PlanCat.Unknown;
-                    CheckPlanCategory(plan, ref planCat);
-                    PlanSum psum = context.PlanSumsInScope.FirstOrDefault();
 
-                    if (psum != null && planCat == PlanCat.TMI)
+                    
+
+				if (context.PlanSum != null)
                     {
-                        CheckPlanSum(psum);
+					PlanSum psum = context.PlanSum;
+					CheckPlanSum(psum);
                     }
-                    else
+                else
                     {
-
-                    List<string> relevantDocuments = new List<string>();
+					PlanSetup plan = context.PlanSetup;
+					PlanCat planCat = PlanCat.Unknown;
+					CheckPlanCategory(plan, ref planCat);
+					List<string> relevantDocuments = new List<string>();
 					Course course = context.Course;
 					string courseIntent = context.Course.Intent;
 					string courseId = context.Course.Id;
-					string messageTitle = "Quick check on " + courseId + " " + plan.Id;
+					string messageTitle = string.Empty;
 					string message = string.Empty;
 
 					message +=
-						"Assumed plan category: " + planCat + "\n\n" +
+					"Assumed plan category: " + planCat + "\n\n" +
 					CheckCourseIntent(courseIntent, plan, planCat) + "\n" +
 					CheckPlanNamingConvention(plan) +
 					CheckClinProt(plan) +
@@ -431,6 +566,7 @@ namespace VMS.TPS
 					}
                     else
                     {
+						messageTitle = "Quick check on " + courseId + " " + plan.Id;
 						message +=
 						CheckSetupField(plan) + "\n" +
 						//"Treatment fields \n" +
@@ -454,17 +590,21 @@ namespace VMS.TPS
 			}
 		}
 
+		/// <summary>
+		/// Information for sum plan exclusively for TBI/TMI plans with delta shifts between plan isocenters
+		/// </summary>
+		/// <param name="psum"></param>
         private void CheckPlanSum(PlanSum psum)
         {// Only for TMI...
 			string sumPlans = string.Empty;
-
-			//List<PlanSetup> sumPlanTreatOrderHFS = psum.PlanSetups.OrderBy(p => p.TreatmentOrientation).ThenBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
-			//List<PlanSetup> sumPlanTreatmentOrder = psum.PlanSetups.OrderBy(p => p.Id).ToList();
-			List<PlanSetup> sumPlanTreatOrderHFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.HeadFirstSupine).OrderBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
-			List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
-
-            if (sumPlanTreatOrderHFS.Count() >= 1)
+			//List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
+			List<PlanSetup> sumPlanTreatOrderHFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.HeadFirstSupine).OrderBy(p => p.Id).ToList();
+			List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Id).ToList();
+			// && planCat == PlanCat.TMI)
+			// Need to check that it actually is the treatment plan, how ? name of the structure set CX DP
+			if (sumPlanTreatOrderHFS.Count() >= 1)
             {
+				sumPlans += "HFS" + "\n\n" + sumPlanTreatOrderHFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderHFS[0]);
 				sumPlans += "HFS" + "\n\n" + sumPlanTreatOrderHFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderHFS[0]);
 
 				for (int i = 1; i < sumPlanTreatOrderHFS.Count(); i++)
@@ -687,7 +827,6 @@ namespace VMS.TPS
 		#endregion Electron Plan Checks
 
 
-
 		private string CheckCtvPtvPlanNumbering(PlanSetup plan, PlanCat planCat)
 		{
 			string cResults = string.Empty;
@@ -716,36 +855,37 @@ namespace VMS.TPS
 			return cResults + "\n";
 		}
 
-
 		#region delta shift
 
 		private string DeltaShiftFromPlanToPlan(PlanSetup fromPlan, PlanSetup toPlan)
 		{
 			VVector deltaShift = DeltaShiftIncm(fromPlan, fromPlan.Beams.First().IsocenterPosition, toPlan.Beams.First().IsocenterPosition);
-
-
+			
 			string delta = " Delta(Vrt,Lng,Lat)[cm]: \t" + deltaShift.y.ToString("0.00");
 			delta += "\t" + deltaShift.z.ToString("0.00");
 			delta += "\t" + deltaShift.x.ToString("0.00")+ "\n";
 			return delta;
 		}
 
-
-
-
-
 		private string DeltaShiftFromOrigin(PlanSetup plan)
         {
 			VVector deltaShift = DeltaShiftIncm(plan, plan.StructureSet.Image.UserOrigin, plan.Beams.First().IsocenterPosition);
-
 
 			string delta = "\niso-Vrt: \t" + deltaShift.y.ToString("0.00") + " cm\n";
 			delta += "iso-Lng: \t" + deltaShift.z.ToString("0.00") + " cm\n";
 			delta += "iso-Lat: \t" + deltaShift.x.ToString("0.00") + " cm\n\n";
 			return delta;
 		}
+		private VVector DeltaShiftOrigin(PlanSetup plan)
+		{
+			return DeltaShiftIncm(plan, plan.StructureSet.Image.UserOrigin, plan.Beams.First().IsocenterPosition);
+		}
+		private VVector DeltaShiftPlanToPlan(PlanSetup fromPlan, PlanSetup toPlan)
+		{
+			return DeltaShiftIncm(fromPlan, fromPlan.Beams.First().IsocenterPosition, toPlan.Beams.First().IsocenterPosition);
+		}
 
-        private VVector DeltaShiftIncm(PlanSetup plan, VVector dicomOriginalPosition, VVector dicomFinalPosition)
+		private VVector DeltaShiftIncm(PlanSetup plan, VVector dicomOriginalPosition, VVector dicomFinalPosition)
         {
 			Image image = plan.StructureSet.Image;
 			VVector eclipseOriginalPosition = image.DicomToUser(dicomOriginalPosition, plan);
@@ -754,7 +894,6 @@ namespace VMS.TPS
 
 			// Have to change sign of Vrt before returning due to difference in coordinate system in Eclipse and the machine
 			deltaShift.y *= -1;
-
 			return deltaShift;
 		}
 
@@ -886,6 +1025,11 @@ namespace VMS.TPS
 				cResults += "\nStructures with assigned HU: \n" + cAssignedHU + "\n\n";
 			}
 
+
+
+
+
+
 			return cResults;
 		}
 
@@ -975,6 +1119,94 @@ namespace VMS.TPS
 
 				}
 			}
+
+/*
+            PatternGradient maskPlattaLat = new PatternGradient
+            {
+                DistanceInMm = new List<double>() { 0, 2, 75, 2, 99, 2, 75, 2 },        // distance between gradients
+                GradientHUPerMm = new List<int>() { 80, -80, 80, -80, 80, -80, 80, -80 },      // 
+                PositionToleranceMm = new List<int>() { 0, 4, 4, 4, 4, 4, 4, 4 },        // tolerance for the gradient position
+                GradIndexForCoord = 4
+            };
+*/
+			PatternGradient maskPlattaLat = new PatternGradient
+			{
+				DistanceInMm = new List<double>() { 0, 256 },        // distance between gradients
+				GradientHUPerMm = new List<int>() { 80, -80 },      // 
+				PositionToleranceMm = new List<int>() { 0, 4 },        // tolerance for the gradient position
+				GradIndexForCoord = 1
+			};
+
+			//PatternGradient.GetGradientCoordinates
+			Image image = ss.Image;
+			var couchStructure = ss.Structures.Where(s => !s.Id.Contains("CouchInterior")).FirstOrDefault();
+			var couchVrtMin = couchStructure.CenterPoint.x;
+			double couchHeight = couchStructure.MeshGeometry.Bounds.X;
+			double couchThick = couchStructure.MeshGeometry.Bounds.SizeX;
+
+			double imageSizeX = image.XRes * image.XSize;
+			double imageSizeY = image.YRes * image.YSize;
+			double xLeftUpperCorner = image.Origin.x - image.XRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
+			double yLeftUpperCorner = image.Origin.y - image.YRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
+
+			/*VVector bottomProfileStart = im;                      // only to get the z-coord of the user origo, x and y coord will be reassigned
+			bottomProfileStart.x = xLeftUpperCorner + imageSizeX / 2;           // center of the image in x-direction
+			bottomProfileStart.y = yLeftUpperCorner + imageSizeY - image.YRes;  // start 1 pixel in from bottom...
+			double steps = image.YRes;                        //  (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
+			*/
+
+			VVector userOrigin = ss.Image.UserOrigin;
+			VVector startPoint = userOrigin; 
+			startPoint.y = yLeftUpperCorner + imageSizeY - image.YRes;  // start 1 pixel in from bottom...
+			var couchTop = couchStructure.GetSegmentProfile(startPoint, userOrigin, new BitArray(100)).Where(x => x.Value == true).Last(); // profile point
+			//string searchForStructure = "struct3"; // there can be only one with the unique ID, Eclipse is also case sensitive
+
+			//Structure couchMarker = ss.Structures.Where(s => s.Id == searchForStructure).SingleOrDefault();
+
+			//cResults += " user origo: = " + userOrigin.x.ToString("0.0") + ", couch top = " + couchTop.Position.y  + " marker " + couchMarker.MeshGeometry.Bounds.Y.ToString("0.0");
+
+			// Couch structure doesn't seem to follow the rules that apply for other structures concerning bounds etc...
+
+			double vrtPos = 0;//PatternGradient.GetGradientCoordinates
+			
+			VVector scanStart = startPoint;
+			VVector scanEnd = startPoint;
+			scanStart.x -= 150;
+			scanEnd.x -= 150;
+			List<double> valHU = new List<double>();
+			List<double> coord = new List<double>();
+
+			int scanDistance = (int)(Math.Abs(userOrigin.y - startPoint.y));
+
+			for (int i = 0; i < scanDistance; i++)
+			{
+				var prof = image.GetImageProfile(scanStart, scanEnd, new double[300]);
+				valHU.Clear();
+				coord.Clear();
+				for (int j = 0; j < 300; j++)
+				{
+					valHU.Add(prof[j].Value);
+					coord.Add(prof[j].Position.x);
+				}
+				double gradient = PatternGradient.GetGradientCoordinates(coord, valHU, maskPlattaLat.GradientHUPerMm, maskPlattaLat.DistanceInMm, maskPlattaLat.PositionToleranceMm, maskPlattaLat.GradIndexForCoord);
+				if (gradient != 0.0)
+				{
+					vrtPos = scanStart.y;
+					cResults += "Maskplattepos sdfhgklsdfklsdgf";
+					break;
+				}
+				else
+				{
+					scanStart.y -= 1;
+					scanEnd.y -= 1;
+				}
+			}
+
+
+
+			cResults += "scandist :" + scanDistance + "\n";
+			cResults += "Maskplattepos vrt :" + vrtPos.ToString("0.0");
+
 			return cResults;
 		}
 
@@ -1553,14 +1785,13 @@ namespace VMS.TPS
 
 
 
-
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
 				//BeamExtraInfo beamExtras = new BeamExtraInfo(beam);
 
 				cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\t";
 				cResults += Math.Round(BeamExtraInfo.GetEstimatedBeamOnTime(beam)).ToString("0") + " s\t" + (beam.ControlPoints.Count()) +"\n";
-				beamOnTimeInSec += GetEstimatedBeamOnTime(beam);
+				beamOnTimeInSec += BeamExtraInfo.GetEstimatedBeamOnTime(beam);
 				
 
 
@@ -1619,185 +1850,6 @@ namespace VMS.TPS
         }
 
 
-		/// <summary>
-		/// Calculates an estimated beam on time from control points in beam, works for dynamic as well as static fields. TODO: EDW unhandled, underestimates 
-		/// time for wedges, espesially large fields (Y) with small number of MU, need to get the STT-tables and calculate this separately 
-		/// </summary>
-		/// <param name="beam"></param>
-		/// <returns></returns>
-		private double GetEstimatedBeamOnTime(Beam beam)
-		{
-			double timeOffset = 0.3; // s, added time for startup beam stabilisation, empirical estimation from trajectory logs
-			double time = 0;
-			int maxDoseRate = beam.DoseRate / 60; // MU/s
-			double totalMU = beam.Meterset.Value;
-			double deltaMU;
-
-			
-
-			int nrOfJaws = 4;
-
-			int nrCP = beam.ControlPoints.Count();
-			double[] cpTime = new double[nrCP];
-			double[] deltaGantry = new double[nrCP];
-			double[] gantrySpeed = new double[nrCP];
-			double[] jawSpeedX1 = new double[nrCP];
-			double[] jawSpeedX2 = new double[nrCP];
-			double[] jawSpeedY1 = new double[nrCP];
-			double[] jawSpeedY2 = new double[nrCP];
-			double[] doseRate = new double[nrCP];
-
-			double[,] deltaJaw = new double[nrCP, nrOfJaws];
-			double[,] jawSpeed = new double[nrCP, nrOfJaws];
-			double[] timeJaw = new double[nrOfJaws];
-			//double[] deltaJawSpeed = new double[nrOfJaws];
-            for (int i = 0; i < nrOfJaws; i++)
-            {
-				jawSpeed[0, i] = 0;
-            }
-			
-			double timeGantry;
-			gantrySpeed[0] = 0;
-			jawSpeedX1[0] = 0;
-			jawSpeedX2[0] = 0;
-			jawSpeedY1[0] = 0;
-			jawSpeedY2[0] = 0;
-
-
-			StringBuilder controlPointList = new StringBuilder();
-
-			controlPointList.AppendLine("CP\tt\tdG\tGspeed\tdX1\tdX2\tdY1\tdY2");
-
-
-			// Assumptions: dose rate modulation is instant. MLC-speed and acceleration not an issue (could be an issue for banks, also for larger MLC leaves, unknown).
-			// time needed from one cp to the next is determined by the parameter that requires the most time, i.e calculate the minimum time needed for each axis
-
-			for (int i = 1; i < beam.ControlPoints.Count(); i++)
-            {
-
-				// time needed to deliver the delta MU with specified dose rate
-				deltaMU = totalMU * (beam.ControlPoints[i].MetersetWeight - beam.ControlPoints[i - 1].MetersetWeight);
-				cpTime[i] = deltaMU / maxDoseRate; // temp assign time for control point
-
-				// minimum time needed for gantry to move between control points at max gantry speed including term for acceleration
-				deltaGantry[i] = DeltaAngle(beam.ControlPoints[i].GantryAngle,  beam.ControlPoints[i - 1].GantryAngle);
-				timeGantry = GetMinTravelTime(deltaGantry[i], gantrySpeed[i - 1], Machine.Axis.Gantry);
-
-				if (timeGantry > cpTime[i]) 
-                {
-					cpTime[i] = timeGantry;
-                }
-
-				// jaw move time. deltajaw has sign, need to consider sign for speed change
-				deltaJaw[i, 0] = beam.ControlPoints[i].JawPositions.X1 - beam.ControlPoints[i - 1].JawPositions.X1;
-				deltaJaw[i, 1] = beam.ControlPoints[i].JawPositions.X2 - beam.ControlPoints[i - 1].JawPositions.X2;
-				deltaJaw[i, 2] = beam.ControlPoints[i].JawPositions.Y1 - beam.ControlPoints[i - 1].JawPositions.Y1;
-				deltaJaw[i, 3] = beam.ControlPoints[i].JawPositions.Y2 - beam.ControlPoints[i - 1].JawPositions.Y2;
-
-				for (int j = 0; j < nrOfJaws; j++)
-				{
-                    if (j<2)
-                    {
-						timeJaw[j] = GetMinTravelTime(deltaJaw[i, j], jawSpeed[i - 1, j], Machine.Axis.X);     // s
-					}
-                    else
-                    {
-						timeJaw[j] = GetMinTravelTime(deltaJaw[i, j], jawSpeed[i - 1, j], Machine.Axis.Y);     // s
-					}
-				}
-
-                if (timeJaw.Max() > cpTime[i])
-                {
-					cpTime[i] = timeJaw.Max();
-                }
-
-
-				// need to recalculate gantry and jaw speed from the resulting control point time to use for next control point
-				// this might be completely off... problably need to study how the control system acts between control points
-
-				gantrySpeed[i] = deltaGantry[i] / cpTime[i];
-
-                for (int j = 0; j < nrOfJaws; j++)
-                {
-					jawSpeed[i, j] = deltaJaw[i, j] / cpTime[i];
-                }
-				doseRate[i] = deltaMU * 60 / cpTime[i];		// calculation of doserate to compare with log files MU/min
-
-				time += cpTime[i];
-
-
-				controlPointList.AppendLine(i + "\t" + cpTime[i].ToString("0.00") + "\t" + deltaGantry[i].ToString("0.0") + "\tGspeed:" + gantrySpeed[i].ToString("0.0") + "\t" + doseRate[i]);
-               /* for (int j = 0; j < nrOfJaws; j++)
-                {
-					controlPointList.Append(deltaJaw[i, j].ToString("0.0") + "\t");
-                }*/
-			}
-
-			string cpInfo = controlPointList.ToString();
-
-			MessageBox.Show(cpInfo);
-
-			return time + timeOffset;
-		}
-
-
-		/// <summary>
-		/// Calculates minimum time required to move an axis a distance s. 
-		/// </summary>
-		/// <param name="s"></param>
-		/// <param name="v0"></param>
-		/// <param name="axis"></param>
-		/// <returns></returns>
-        private double GetMinTravelTime(double s, double v0, Machine.Axis axis)
-        {
-			double vMax = 1, a = 1, t;
-            switch (axis)
-            {
-                case Machine.Axis.Gantry:
-					vMax = Machine.GantryMaxSpeed;
-					a = Machine.GantryMaxAcc;
-                    break;
-                case Machine.Axis.Y:
-					vMax = Machine.JawYMaxSpeed;
-					a = Machine.JawYMaxAcc;
-					break;
-                case Machine.Axis.X:
-					vMax = Machine.JawXMaxSpeed;
-					a = Machine.JawXMaxAcc;
-					break;
-            }
-
-			//The sign of s, vmax and acceleration should always be the same
-
-			int movementDirection = (int)(s / Math.Abs(s));
-
-			vMax *= movementDirection;
-			a *= movementDirection;
-
-			double rot = Math.Sqrt((v0 / a) * (v0 / a) + 2 * s / a);
-			t = -v0 / a;
-			if (t-rot < 0)
-            {
-				t += rot;
-            }
-            else
-            {
-				t -= rot;
-            }
-
-			// if the calculated time is longer than the time it takes to reach vmax, i.e if resulting v > vmax
-
-            if (a * t + v0 > vMax)
-            {
-				double t1 = (vMax - v0) / a; // time it takes to reach vmax
-				double s1 = (a * t1 * t1) / 2 + v0 * t1; // distance traveled when vmax is reached
-
-				t = t1 + (s-s1) / vMax; // add time to travel remaining distance (s-s1) at constant velocity vmax
-            }
-			return t;
-		}
-
-
 
 
         /// <summary>
@@ -1822,8 +1874,7 @@ namespace VMS.TPS
 				cpFirst.Add(beam.ControlPoints.First());
 				cpLast.Add(beam.ControlPoints.Last());
 				beamsInOrder.Add(beam);
-				treatTime += GetEstimatedBeamOnTime(beam);
-				
+				treatTime += BeamExtraInfo.GetEstimatedBeamOnTime(beam);
             }
 
 			// control sequens and energy change happens parallel with, and independent to, mechanical movements

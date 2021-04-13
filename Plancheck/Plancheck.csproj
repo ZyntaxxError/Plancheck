@@ -56,11 +56,11 @@
     <Reference Include="System.Data" />
     <Reference Include="System.Net.Http" />
     <Reference Include="System.Xml" />
-    <Reference Include="VMS.TPS.Common.Model.API, Version=1.0.200.43, Culture=neutral, PublicKeyToken=305b81e210ec4b89, processorArchitecture=AMD64">
-      <HintPath>..\packages\ESAPI_15.5.15.5.11.13\lib\net45\VMS.TPS.Common.Model.API.dll</HintPath>
+    <Reference Include="VMS.TPS.Common.Model.API">
+      <HintPath>..\..\..\Assemblies\API 16.1\VMS.TPS.Common.Model.API.dll</HintPath>
     </Reference>
-    <Reference Include="VMS.TPS.Common.Model.Types, Version=1.0.200.43, Culture=neutral, PublicKeyToken=305b81e210ec4b89, processorArchitecture=AMD64">
-      <HintPath>..\packages\ESAPI_15.5.15.5.11.13\lib\net45\VMS.TPS.Common.Model.Types.dll</HintPath>
+    <Reference Include="VMS.TPS.Common.Model.Types">
+      <HintPath>..\..\..\Assemblies\API 16.1\VMS.TPS.Common.Model.Types.dll</HintPath>
     </Reference>
     <Reference Include="WindowsBase" />
   </ItemGroup>
