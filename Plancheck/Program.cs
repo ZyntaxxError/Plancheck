@@ -491,13 +491,8 @@ namespace VMS.TPS
 			Unknown,
 			Electron,
 			SBRT,
-			CRT,
-			IMRT,
-			VMAT,
-			DynArc,
 			TBI,
-			TMI,
-			NoPlan
+			TMI
 		}
 
 		/// <summary>
@@ -534,7 +529,7 @@ namespace VMS.TPS
 				if (context.PlanSum != null)
                     {
 					PlanSum psum = context.PlanSum;
-					CheckPlanSum(psum);
+					CheckPlanSum(psum);  //TODO: check plan category of included plans in plan sum
                     }
                 else
                     {
@@ -545,7 +540,7 @@ namespace VMS.TPS
 					Course course = context.Course;
 					string courseIntent = context.Course.Intent;
 					string courseId = context.Course.Id;
-					string messageTitle = string.Empty;
+					string messageTitle = "Quick check on " + courseId + " " + plan.Id;
 					string message = string.Empty;
 
 					message +=
@@ -560,13 +555,39 @@ namespace VMS.TPS
 					CheckStructureSet(plan, planCat);
 
 
-					if (planCat == PlanCat.Electron)
+
+
+
+
+                    if (planCat == PlanCat.Electron)
                     {
 						message += CheckElectronPlan(plan);
 					}
                     else
                     {
-						messageTitle = "Quick check on " + courseId + " " + plan.Id;
+                        switch (planCat)
+                        {
+                            case PlanCat.Unknown:
+                                break;
+                            case PlanCat.Electron:
+                                break;
+                            case PlanCat.SBRT:
+
+                                break;
+                            case PlanCat.TBI:
+								message += CheckBodyCenter(plan);
+								break;
+                            case PlanCat.TMI:
+                                if (plan.Id.Contains("OPT"))
+                                {
+									message += CheckBodyCenter(plan);
+									message += GetMaxSSDJunctions(plan);
+								}
+								break;
+                            default:
+                                break;
+                        }
+
 						message +=
 						CheckSetupField(plan) + "\n" +
 						//"Treatment fields \n" +
@@ -578,50 +599,227 @@ namespace VMS.TPS
 						//SimpleCollisionCheck(plan);
 					}
 
-
-					if (message.Length == 0)
-					{
-						message = "No comments...";
-					}
-
 					MessageBox.Show(message, messageTitle);
 
 				}
 			}
 		}
 
+
 		/// <summary>
-		/// Information for sum plan exclusively for TBI/TMI plans with delta shifts between plan isocenters
+		/// Gets the maximum SSD for each junction in a TBI/TMI plan on the left and right side, assumes that maximum SSD is limited to lateral side
+		/// ASSUMPTION: fixed field size...
 		/// </summary>
-		/// <param name="psum"></param>
+		/// <param name="plan"></param>
+		/// <returns></returns>
+        private string GetMaxSSDJunctions(PlanSetup plan)
+        {
+			// TODO: need to check if all iso are positioned in same lat and vrt value first
+			StructureSet ss = plan.StructureSet;
+			Image image = ss.Image;
+			Structure structure = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type, might want to use PTV_Total instead
+			string junkPosZ = string.Empty;
+			// make list of isocenter positions
+			List<VVector> isos = IsocentersInPlan(plan);
+			// debug
+			for (int i = 0; i < isos.Count; i++)
+			{
+				VVector junkEclipse = image.DicomToUser(isos[i], plan);
+				junkPosZ += "iso " + i + ":\t" + (junkEclipse.z / 10).ToString("0.0") + "\n";
+			}
+
+			List<VVector> junctionPositions = new List<VVector>(); // TODO: depends on field size...
+			VVector junction = new VVector();
+            for (int i = 1; i < isos.Count; i++)
+            {
+				junction.x = isos[i].x;
+				junction.y = isos[i].y;
+				junction.z = (isos[i].z + isos[i - 1].z) / 2;
+				junctionPositions.Add(junction);
+				VVector junkEclipse = image.DicomToUser(junction, plan);
+				junkPosZ += "junktion " + i + ":\t" + (junkEclipse.z/10).ToString("0.0") + "\n";
+            }
+
+			double lat1 = structure.MeshGeometry.Bounds.X;
+			double lat2 = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX;
+			double vrt1 = structure.MeshGeometry.Bounds.Y;
+			double vrt2 = structure.MeshGeometry.Bounds.Y + structure.MeshGeometry.Bounds.SizeY;
+			double searchRadius = 0.0;
+			// check the max distance from junction/iso to the four corners of the bounds of the structure, same values for all junctions
+			double[] dist = new double[4];
+
+			dist[0] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat1, 2) + Math.Pow(junctionPositions[0].y - vrt2, 2));
+			dist[1] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat2, 2) + Math.Pow(junctionPositions[0].y - vrt2, 2));
+			dist[2] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat1, 2) + Math.Pow(junctionPositions[0].y - vrt1, 2));
+			dist[3] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat2, 2) + Math.Pow(junctionPositions[0].y - vrt1, 2));
+
+			searchRadius = dist.Max();
+			VVector exitPos = new VVector();
+			VVector maxDistancePosition = new VVector();
+			double maxDistance = 0.0;
+			// rotate around the structure with origo in junktion and find the maximum distance
+			for (int angle = 0; angle < 360; angle++)
+            {
+				double x = junction.x + searchRadius * Math.Cos(angle * Math.PI / 180);
+				double y = junction.y + searchRadius * Math.Sin(angle * Math.PI / 180);
+				VVector endPoint = junctionPositions[1];
+				endPoint.x = x;
+				endPoint.y = y;
+				var structureExitPoint = structure.GetSegmentProfile(junctionPositions[1], endPoint, new BitArray(100)).Where(s => s.Value == true).Last();
+
+				//Have to convert from Type Point to VVector
+				exitPos.x = structureExitPoint.Position.x;
+				exitPos.y = structureExitPoint.Position.y;
+				exitPos.z = structureExitPoint.Position.z;
+
+				double distance = Math.Sqrt(Math.Pow(junctionPositions[1].x - exitPos.x, 2) + Math.Pow(junctionPositions[0].y - exitPos.y, 2));
+                if (distance > maxDistance)
+                {
+					maxDistance = distance;
+					maxDistancePosition = exitPos;
+				}
+			}
+
+			// Note that all positions are still in dicom coordinates and distances in mm
+
+			VVector maxDistPosEclipse = image.DicomToUser(maxDistancePosition, plan);
+			junkPosZ += "\n\nmaxpos(x,y,z) " + ":\t(" + (maxDistPosEclipse.x / 10).ToString("0.0") + ", " + (maxDistPosEclipse.y / 10).ToString("0.0") + ", " + (maxDistPosEclipse.z / 10).ToString("0.0") + ")\n";
+			junkPosZ += "Max distance:\t" + (maxDistance/10).ToString("0.0") + "\n";
+
+
+
+
+
+
+			return junkPosZ;
+			// startpoint z = junction, x = isoposition lat, y isoposition vrt
+			// first endpoint left side:  z same as startpoint, x = structure boundary.x + margin, y = structure boundary.y (upper) - margin
+			// last endpoint left side: z same as startpoint, x = structure boundary.x + margin, y = structure boundary.y+Bounds.SizeY + margin
+
+			/*
+			var structureExit = structure.GetSegmentProfile(junctionPositions[1], lowLeft, new BitArray(100)).Where(s => s.Value == true).Last();
+			VVector exitPos = new VVector();
+			exitPos.x = structureExit.Position.x;
+			exitPos.y = structureExit.Position.y;
+			exitPos.z = structureExit.Position.z;
+			// Calculate distance from iso to exit, save maximum distance
+			junkPosZ += "\n\n Position x:" + (image.DicomToUser(exitPos, plan).x/10).ToString("0.0") + "\t y:" + (image.DicomToUser(exitPos, plan).y / 10).ToString("0.0") + "\n";
+			//double dist = Distance(junctionPositions[1], exitPos); // distance in mm, then calculate 
+			return junkPosZ;
+
+			//Delta = 2*x*SSD/iso för att precis toucha…
+			//där x är fältstorlek på iso för den bländare x1 eller x2 som utgör skarven(13.5 cm) och SSD = 100 - maximala längden på vektor som utgår från iso till PTVs yttersta gräns i varje vinkel
+			// hur räkna ut minsta överlapp?
+			*/
+
+
+
+
+
+		}
+
+
+
+		/// <summary>
+		/// Returns a list of VVectors representing all the isocenters found in plan ordered by iso position z, then x, then y
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <returns></returns>
+		public List<VVector> IsocentersInPlan(PlanSetup plan)
+        {
+			// make list of isocenter positions
+			List<VVector> isos = new List<VVector>();
+			foreach (var beam in plan.Beams.OrderByDescending(b => b.IsocenterPosition.z).ThenBy(b => b.IsocenterPosition.x).ThenBy(b => b.IsocenterPosition.y))
+			{
+				if (isos.Any(i => i.z == beam.IsocenterPosition.z && i.z == beam.IsocenterPosition.z && i.z == beam.IsocenterPosition.z) == false)
+				{
+					isos.Add(beam.IsocenterPosition);
+				}
+			}
+			return isos;
+		}
+
+
+		private string CheckBodyCenter(PlanSetup plan)
+        {
+			string results = string.Empty;
+			
+			StructureSet ss = plan.StructureSet;
+			Image image = ss.Image;
+			Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type
+			if (body.MeshGeometry == null)
+            {
+				results = "Cannot find geometric center";
+            }
+            else
+            {
+				VVector gCenter = GetStructureGeometricCenter(body);
+				VVector gCEclipse = image.DicomToUser(gCenter, plan);
+				VVector wCenter = body.CenterPoint;
+				VVector wCEclipse = image.DicomToUser(wCenter, plan);
+			results = "Body weighted center:\tvrt: " + (wCEclipse.y / 10).ToString("0.0") + "\tlat: " + (wCEclipse.x / 10).ToString("0.0") + "\n" +
+					"Body geometric center:\tvrt: " + (gCEclipse.y / 10).ToString("0.0") + "\tlat: " + (gCEclipse.x / 10).ToString("0.0") + "\n";
+			}
+			return results;
+		}
+
+		private VVector GetStructureGeometricCenter(Structure structure) 
+		{
+            VVector geomCenter = new VVector
+            {
+                x = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX / 2,
+                y = structure.MeshGeometry.Bounds.Y + structure.MeshGeometry.Bounds.SizeY / 2,
+                z = structure.MeshGeometry.Bounds.Z + structure.MeshGeometry.Bounds.SizeZ / 2
+			};
+			return geomCenter;
+		}
+
+
+
+        /// <summary>
+        /// Information for sum plan exclusively for TBI/TMI plans with delta shifts between plan isocenters
+        /// </summary>
+        /// <param name="psum"></param>
         private void CheckPlanSum(PlanSum psum)
         {// Only for TMI...
 			string sumPlans = string.Empty;
-			//List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
-			List<PlanSetup> sumPlanTreatOrderHFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.HeadFirstSupine).OrderBy(p => p.Id).ToList();
-			List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Id).ToList();
-			// && planCat == PlanCat.TMI)
-			// Need to check that it actually is the treatment plan, how ? name of the structure set CX DP
-			if (sumPlanTreatOrderHFS.Count() >= 1)
+			PlanSetup firstPlan = psum.PlanSetups.OrderBy(p => p.Id).FirstOrDefault();
+			PlanCat planCat = PlanCat.Unknown;
+			CheckPlanCategory(firstPlan, ref planCat);
+			if (planCat == PlanCat.TBI || planCat == PlanCat.TMI)
             {
-				sumPlans += "HFS" + "\n\n" + sumPlanTreatOrderHFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderHFS[0]);
-				sumPlans += "HFS" + "\n\n" + sumPlanTreatOrderHFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderHFS[0]);
+				//List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
+				List<PlanSetup> sumPlanTreatOrderHFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.HeadFirstSupine).OrderBy(p => p.Id).ToList();
+				List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Id).ToList();
 
-				for (int i = 1; i < sumPlanTreatOrderHFS.Count(); i++)
+				// Need to check that it actually is the treatment plan, how ? name of the structure set CX DP
+				if (sumPlanTreatOrderHFS.Count() >= 1)
 				{
-					sumPlans += sumPlanTreatOrderHFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderHFS[i - 1], sumPlanTreatOrderHFS[i]);
+					sumPlans += "HFS" + "\n\n" + sumPlanTreatOrderHFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderHFS[0]);
+					sumPlans += "HFS" + "\n\n" + sumPlanTreatOrderHFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderHFS[0]);
+
+					for (int i = 1; i < sumPlanTreatOrderHFS.Count(); i++)
+					{
+						sumPlans += sumPlanTreatOrderHFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderHFS[i - 1], sumPlanTreatOrderHFS[i]);
+					}
 				}
+
+				if (sumPlanTreatOrderFFS.Count() >= 1)
+				{
+					sumPlans += "\n\nFFS" + "\n\n" + sumPlanTreatOrderFFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderFFS[0]);
+
+					for (int i = 1; i < sumPlanTreatOrderFFS.Count(); i++)
+					{
+						sumPlans += sumPlanTreatOrderFFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderFFS[i - 1], sumPlanTreatOrderFFS[i]);
+					}
+				}
+            }
+            else
+            {
+				sumPlans = "Can only show sumplans for category TMI and TBI VMAT";
 			}
 
-            if (sumPlanTreatOrderFFS.Count() >= 1)
-            {
-				sumPlans += "\n\nFFS" + "\n\n" + sumPlanTreatOrderFFS[0].Id + "\t\n" + DeltaShiftFromOrigin(sumPlanTreatOrderFFS[0]);
 
-				for (int i = 1; i < sumPlanTreatOrderFFS.Count(); i++)
-				{
-					sumPlans += sumPlanTreatOrderFFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderFFS[i - 1], sumPlanTreatOrderFFS[i]);
-				}
-			}
 			MessageBox.Show(sumPlans);
 		}
 
@@ -1202,8 +1400,6 @@ namespace VMS.TPS
 				}
 			}
 
-
-
 			cResults += "scandist :" + scanDistance + "\n";
 			cResults += "Maskplattepos vrt :" + vrtPos.ToString("0.0");
 
@@ -1240,27 +1436,24 @@ namespace VMS.TPS
             }
             else
             {
-
-
 				// check that body is larger than Skin, at least in iso pos (z)
 				// Could use bounds but that assumes that skin is contured for whole body 
 				// Instead use profile
 				// startpoint; isocenter long and lat, vrt bottom of bounding box for total body
-
-				// If vacum bag, could be thin in bottom, better get a profile also in lateral direction
+				// TODO: If vacum bag, could be thin in bottom, better get a profile also in lateral direction
 
 				Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type
 				double bodyVrtMin = body.MeshGeometry.Bounds.Y + body.MeshGeometry.Bounds.SizeY;
+				int minDifferenceBodySkin = 3; // if difference larger than 3 mm assume that body includes fixation device
 
 				VVector endPoint = plan.Beams.FirstOrDefault().IsocenterPosition;
 				VVector startPoint = endPoint;
 				startPoint.y = bodyVrtMin;
 				
-
 				var bodyEntrance = body.GetSegmentProfile(startPoint, endPoint, new BitArray(100)).Where(x => x.Value == true).First();
 				var skinEntrance = skin.GetSegmentProfile(startPoint, endPoint, new BitArray(100)).Where(x => x.Value == true).First();
 
-                if (bodyEntrance.Position.y <= skinEntrance.Position.y + 3)
+                if (bodyEntrance.Position.y <= skinEntrance.Position.y + minDifferenceBodySkin)
                 {
 					cResults += "\n* Check if there are any fixation devices that should be included in the BODY structure.\n";
                 }
