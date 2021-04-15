@@ -229,18 +229,19 @@ namespace VMS.TPS
 	}
 
 
-	// speeds are mean values from trajectory logs, parameters vary somewhat depending on acceleration or deceleration, gravity etc but should be close enough
-	// to calculate a fair estimation of beam-on time.
+
 	public static class Machine
 	{
-		public const int GantryMaxSpeed = 6;  // deg/s
-		public const int CollMaxSpeed = 60;  // TODO: TBD
+		// speeds and accelerations (except Collimator) are mean values from trajectory logs, parameters vary somewhat depending on acceleration or deceleration, gravity etc 
+		// but should be close enough to calculate a fair estimation of beam-on time. Collimator speed taken from TrueBeam Specs, collimator acceleration is arbitrarily chosen.
+		public const int GantryMaxSpeed = 6;	// deg/s
+		public const int CollMaxSpeed = 15;		// deg/s,  2.5 RPM with no accessory (1 RPM with accessory)
 		public const float JawYMaxSpeed = 22.5f;
 		public const float JawXMaxSpeed = 22.5f;
-		public const int GantryMaxAcc = 16;// deg/s^2 
-		public const int CollMaxAcc = 6;  // TODO: TBD
-		public const int JawYMaxAcc = 50; // mm/s^2
-		public const int JawXMaxAcc = 160; // mm/s^2
+		public const int GantryMaxAcc = 16;		// deg/s^2 
+		public const int CollMaxAcc = 60;		// TODO: TBD
+		public const int JawYMaxAcc = 50;		// mm/s^2
+		public const int JawXMaxAcc = 160;		// mm/s^2
 
 		public enum Axis
 		{
@@ -380,7 +381,7 @@ namespace VMS.TPS
 
 				time += cpTime[i];
 
-				//debug list of control points for comparison with trajectory logs, perhaps get timeJaw?
+				//debug list of control points for comparison with trajectory logs.
 				controlPointList.AppendLine(i + "\t" + cpTime[i].ToString("0.00") + "\t" + "\tGspeed:" + gantrySpeed[i].ToString("0.0"));
 				for (int j = 0; j < nrOfJaws; j++)
 				 {
@@ -466,10 +467,7 @@ namespace VMS.TPS
 			//Convert to Varian machine scale before calculating delta angle 
 			angleStart = Conversion.ScaleConv(angleStart, scale, Conversion.Scale.VarianIEC, axis);
 			angleEnd = Conversion.ScaleConv(angleEnd, scale, Conversion.Scale.VarianIEC, axis);
-
-			double dAngle = Math.Abs(angleEnd - angleStart);
-			
-			return dAngle;
+			return Math.Abs(angleEnd - angleStart);
 		}
 	}
 
@@ -478,7 +476,7 @@ namespace VMS.TPS
 	//******************************************************************   SCRIPT START *************************************************
 
 
-
+	// TODO: bool IsGantryExtended
 
 	class Script
 	{
@@ -612,12 +610,12 @@ namespace VMS.TPS
 		/// </summary>
 		/// <param name="plan"></param>
 		/// <returns></returns>
-        private string GetMaxSSDJunctions(PlanSetup plan)
-        {
+		private string GetMaxSSDJunctions(PlanSetup plan)
+		{
 			// TODO: need to check if all iso are positioned in same lat and vrt value first
 			StructureSet ss = plan.StructureSet;
 			Image image = ss.Image;
-			Structure structure = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type, might want to use PTV_Total instead
+			Structure structure = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type, might want to use PTV_Total instead
 			string junkPosZ = string.Empty;
 			// make list of isocenter positions
 			List<VVector> isos = IsocentersInPlan(plan);
@@ -630,21 +628,21 @@ namespace VMS.TPS
 
 			List<VVector> junctionPositions = new List<VVector>(); // TODO: depends on field size...
 			VVector junction = new VVector();
-            for (int i = 1; i < isos.Count; i++)
-            {
+			for (int i = 1; i < isos.Count; i++)
+			{
 				junction.x = isos[i].x;
 				junction.y = isos[i].y;
 				junction.z = (isos[i].z + isos[i - 1].z) / 2;
 				junctionPositions.Add(junction);
 				VVector junkEclipse = image.DicomToUser(junction, plan);
-				junkPosZ += "junktion " + i + ":\t" + (junkEclipse.z/10).ToString("0.0") + "\n";
-            }
+				junkPosZ += "junktion " + i + ":\t" + (junkEclipse.z / 10).ToString("0.0") + "\n";
+			}
 
 			double lat1 = structure.MeshGeometry.Bounds.X;
 			double lat2 = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX;
 			double vrt1 = structure.MeshGeometry.Bounds.Y;
 			double vrt2 = structure.MeshGeometry.Bounds.Y + structure.MeshGeometry.Bounds.SizeY;
-			double searchRadius = 0.0;
+			//double searchRadius = 0.0;
 			// check the max distance from junction/iso to the four corners of the bounds of the structure, same values for all junctions
 			double[] dist = new double[4];
 
@@ -652,73 +650,147 @@ namespace VMS.TPS
 			dist[1] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat2, 2) + Math.Pow(junctionPositions[0].y - vrt2, 2));
 			dist[2] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat1, 2) + Math.Pow(junctionPositions[0].y - vrt1, 2));
 			dist[3] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat2, 2) + Math.Pow(junctionPositions[0].y - vrt1, 2));
-
-			searchRadius = dist.Max();
+			
+			double searchRadius = dist.Max();
 			VVector exitPos = new VVector();
-			VVector maxDistancePosition = new VVector();
-			double maxDistance = 0.0;
-			// rotate around the structure with origo in junktion and find the maximum distance
-			for (int angle = 0; angle < 360; angle++)
+			VVector[] maxDistancePosition = new VVector[junctionPositions.Count];
+			double[] maxDistance = new double[junctionPositions.Count];
+			maxDistance[0] = 0.0;
+
+			for (int j = 0; j < junctionPositions.Count; j++)
+			{
+
+				// rotate around the structure with origo in junktion and find the maximum distance
+				for (int angle = 0; angle < 360; angle++)
+				{
+					double x = junction.x + searchRadius * Math.Cos(angle * Math.PI / 180);
+					double y = junction.y + searchRadius * Math.Sin(angle * Math.PI / 180);
+					VVector endPoint = junctionPositions[j];
+					endPoint.x = x;
+					endPoint.y = y;
+					// TODO: add condition if segment profile don't intersect with the structure. Use of LastOrDefault uncertain what Default is 
+					SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(200)).Where(s => s.Value == true).LastOrDefault();
+					//convert from Type Point to VVector
+					var structureOutside = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(100)).Where(s => s.Value == false);
+					exitPos.x = structureExitPoint.Position.x;
+					exitPos.y = structureExitPoint.Position.y;
+					exitPos.z = structureExitPoint.Position.z;
+
+					double distance = Math.Sqrt(Math.Pow(junctionPositions[j].x - exitPos.x, 2) + Math.Pow(junctionPositions[j].y - exitPos.y, 2));
+
+                    if (distance > maxDistance[j])
+                    {
+						maxDistance[j] = distance; 
+                        maxDistancePosition[j] = exitPos; 
+                    }
+                }
+			}
+            // Note that all positions are still in dicom coordinates and distances in mm
+			
+            for (int i = 0; i < junctionPositions.Count; i++)
             {
-				double x = junction.x + searchRadius * Math.Cos(angle * Math.PI / 180);
-				double y = junction.y + searchRadius * Math.Sin(angle * Math.PI / 180);
-				VVector endPoint = junctionPositions[1];
-				endPoint.x = x;
-				endPoint.y = y;
-				var structureExitPoint = structure.GetSegmentProfile(junctionPositions[1], endPoint, new BitArray(100)).Where(s => s.Value == true).Last();
-
-				//Have to convert from Type Point to VVector
-				exitPos.x = structureExitPoint.Position.x;
-				exitPos.y = structureExitPoint.Position.y;
-				exitPos.z = structureExitPoint.Position.z;
-
-				double distance = Math.Sqrt(Math.Pow(junctionPositions[1].x - exitPos.x, 2) + Math.Pow(junctionPositions[0].y - exitPos.y, 2));
-                if (distance > maxDistance)
-                {
-					maxDistance = distance;
-					maxDistancePosition = exitPos;
-				}
+				VVector maxDistPosEclipse = image.DicomToUser(maxDistancePosition[i], plan);
+				junkPosZ += "\n\nmaxpos(x,y,z) " + ":\t(" + (maxDistPosEclipse.x / 10).ToString("0.0") + ", " + (maxDistPosEclipse.y / 10).ToString("0.0") + ", " + (maxDistPosEclipse.z / 10).ToString("0.0") + ")\n";
+				junkPosZ += "Max distance:\t" + (maxDistance[i] / 10).ToString("0.0") + "\n";
 			}
 
-			// Note that all positions are still in dicom coordinates and distances in mm
+			junkPosZ += "\nMin SSD:\t" + (100 - maxDistance.Max() / 10).ToString("0.0") + "\n";
 
-			VVector maxDistPosEclipse = image.DicomToUser(maxDistancePosition, plan);
-			junkPosZ += "\n\nmaxpos(x,y,z) " + ":\t(" + (maxDistPosEclipse.x / 10).ToString("0.0") + ", " + (maxDistPosEclipse.y / 10).ToString("0.0") + ", " + (maxDistPosEclipse.z / 10).ToString("0.0") + ")\n";
-			junkPosZ += "Max distance:\t" + (maxDistance/10).ToString("0.0") + "\n";
+			junkPosZ += CranCoverage(plan);
 
-
-
-
-
-
-			return junkPosZ;
-			// startpoint z = junction, x = isoposition lat, y isoposition vrt
-			// first endpoint left side:  z same as startpoint, x = structure boundary.x + margin, y = structure boundary.y (upper) - margin
-			// last endpoint left side: z same as startpoint, x = structure boundary.x + margin, y = structure boundary.y+Bounds.SizeY + margin
-
-			/*
-			var structureExit = structure.GetSegmentProfile(junctionPositions[1], lowLeft, new BitArray(100)).Where(s => s.Value == true).Last();
-			VVector exitPos = new VVector();
-			exitPos.x = structureExit.Position.x;
-			exitPos.y = structureExit.Position.y;
-			exitPos.z = structureExit.Position.z;
-			// Calculate distance from iso to exit, save maximum distance
-			junkPosZ += "\n\n Position x:" + (image.DicomToUser(exitPos, plan).x/10).ToString("0.0") + "\t y:" + (image.DicomToUser(exitPos, plan).y / 10).ToString("0.0") + "\n";
-			//double dist = Distance(junctionPositions[1], exitPos); // distance in mm, then calculate 
 			return junkPosZ;
 
 			//Delta = 2*x*SSD/iso för att precis toucha…
 			//där x är fältstorlek på iso för den bländare x1 eller x2 som utgör skarven(13.5 cm) och SSD = 100 - maximala längden på vektor som utgår från iso till PTVs yttersta gräns i varje vinkel
 			// hur räkna ut minsta överlapp?
-			*/
-
-
-
-
 
 		}
 
+		/// <summary>
+		/// Determine the field size nessesary to cover the PTV in all angles for 90 deg coll
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <returns></returns>
+		private string CranCoverage(PlanSetup plan)
+		{
+			// TODO: need to check if all iso are positioned in same lat and vrt value first
+			StructureSet ss = plan.StructureSet;
+			Image image = ss.Image;
+			Structure structure = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type, might want to use PTV_Total instead
+			string junkPosZ = string.Empty;
+			Beam cranBeam = plan.Beams.Where(b => b.Id == "1").FirstOrDefault();
+			VVector isoPos = cranBeam.IsocenterPosition;
+			double assumedFieldsize = 135;  // TODO: Check the actual field size...    **********************************
 
+			//double x1 = cranBeam.ControlPoints.First.
+			string debug = string.Empty;
+
+			double lat1 = structure.MeshGeometry.Bounds.X;
+			double lat2 = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX;
+			double vrt1 = structure.MeshGeometry.Bounds.Y;
+			double vrt2 = structure.MeshGeometry.Bounds.Y + structure.MeshGeometry.Bounds.SizeY;
+			//double searchRadius = 0.0;
+			// check the max distance from junction/iso to the four corners of the bounds of the structure, same values for all junctions
+			double[] dist = new double[4];
+
+			dist[0] = Math.Sqrt(Math.Pow(isoPos.x - lat1, 2) + Math.Pow(isoPos.y - vrt2, 2));
+			dist[1] = Math.Sqrt(Math.Pow(isoPos.x - lat2, 2) + Math.Pow(isoPos.y - vrt2, 2));
+			dist[2] = Math.Sqrt(Math.Pow(isoPos.x - lat1, 2) + Math.Pow(isoPos.y - vrt1, 2));
+			dist[3] = Math.Sqrt(Math.Pow(isoPos.x - lat2, 2) + Math.Pow(isoPos.y - vrt1, 2));
+
+			double searchRadius = dist.Max();
+
+
+			// 
+			debug += "searchRadius: " + searchRadius.ToString("0.0") + "\n";
+			             
+
+			// rotate around the structure with origo in iso and check if intersection with structure, if so recommend move iso
+			// enough to scan from iso to outer position determined by scanradius and z by divergence and field size
+			double z1 = isoPos.z + assumedFieldsize;
+			double z2 = isoPos.z + assumedFieldsize * (1000 - searchRadius) / 1000; // mm?
+			VVector startPoint = isoPos;
+			startPoint.z = z1;
+			debug += "startpoint z: " + (image.DicomToUser(startPoint, plan).z / 10).ToString("0.0") + "\n";
+			VVector endPoint = new VVector();
+			endPoint.z = z2;
+			int anglesIntersecting = 0;
+			for (int angle = 0; angle < 360; angle++)
+			{
+				double x = cranBeam.IsocenterPosition.x + searchRadius * Math.Cos(angle * Math.PI / 180);
+				double y = cranBeam.IsocenterPosition.y + searchRadius * Math.Sin(angle * Math.PI / 180);
+
+				endPoint.x = x;
+				endPoint.y = y;
+
+				var structureOutside = structure.GetSegmentProfile(startPoint, endPoint, new BitArray(100)).Where(s => s.Value == false);
+                if (structureOutside.Count() != 100)
+                {
+					anglesIntersecting++;
+                }
+			}
+
+			//junkPosZ += intersect + debug;
+            if (anglesIntersecting == 360)
+            {
+				junkPosZ += "Cranial part of PTV not covered!\n";
+            }
+            else if (anglesIntersecting > 0)
+            {
+				junkPosZ += "Cranial part of PTV not covered in all angles, " + anglesIntersecting + "\n";
+			}
+            else
+            {
+				junkPosZ += "Cranial part of PTV covered ok\n";
+			}
+			return junkPosZ;
+			// Note that all positions are still in dicom coordinates and distances in mm
+
+			//Delta = 2*x*SSD/iso för att precis toucha…
+			//där x är fältstorlek på iso för den bländare x1 eller x2 som utgör skarven(13.5 cm) och SSD = 100 - maximala längden på vektor som utgår från iso till PTVs yttersta gräns i varje vinkel
+			// hur räkna ut minsta överlapp?
+
+		}
 
 		/// <summary>
 		/// Returns a list of VVectors representing all the isocenters found in plan ordered by iso position z, then x, then y
@@ -2020,7 +2092,7 @@ namespace VMS.TPS
 			{
 				remarks += "** Check the arc directions! \t";
 			}
-			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n\n" + "TreatTime: > " + Math.Round(GetEstimatedTreatmentTime(plan)/60, 1).ToString("0.0") + remarks;
+			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n\n" + "Estimated delivery time: > " + Math.Round(GetEstimatedTreatmentTime(plan)/60, 1).ToString("0.0") + "min\n" + remarks;
 		}
 
         private string CheckForCouchValuesTMI(PlanSetup plan)
@@ -2247,7 +2319,7 @@ namespace VMS.TPS
 		{
 			string cResults = "";
 			// only if no wedges in plan
-			if (countMLCStaticFFFRemarks < 1 && !beam.EnergyModeDisplayName.Contains("FFF") && !anyWedgesInPlan(plan))
+			if (countMLCStaticFFFRemarks < 1 && !beam.EnergyModeDisplayName.Contains("FFF") && !AnyWedgesInPlan(plan))
 			{
 				cResults = "* Consider changing energy to FFF \n";
 				countMLCStaticFFFRemarks++;
@@ -2255,7 +2327,7 @@ namespace VMS.TPS
 			return cResults;
 		}
 
-		public bool anyWedgesInPlan(PlanSetup plan)
+		public bool AnyWedgesInPlan(PlanSetup plan)
 		{
 			bool anyWedgesInPlan = false;
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField))
