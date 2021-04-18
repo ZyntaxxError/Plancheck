@@ -34,6 +34,12 @@ namespace VMS.TPS
 		public List<int> PositionToleranceMm { get; set; }
 		public int GradIndexForCoord { get; set; }
 
+		/// <summary>
+		/// SameSign; helper method to determine if two doubles have the same sign
+		/// </summary>
+		/// <param name="num1"></param>
+		/// <param name="num2"></param>
+		/// <returns></returns>
 		static bool SameSign(double num1, double num2)
 		{
 			return num1 >= 0 && num2 >= 0 || num1 < 0 && num2 < 0;
@@ -477,6 +483,9 @@ namespace VMS.TPS
 
 
 	// TODO: bool IsGantryExtended
+	// TODO: change "structure with assigned HU" when checking calculated plan to; "structures with assigned hu included in calculation"
+	//: TODO, make functions for TMI OPT work without plan, should be possible to recommend isocenters (even cm) and limits of last z_ptv
+	// based on ID of image (series properties?) Prereq: BODY, origo and couch ok
 
 	class Script
 	{
@@ -493,12 +502,7 @@ namespace VMS.TPS
 			TMI
 		}
 
-		/// <summary>
-		/// SameSign; helper method to determine if two doubles have the same sign
-		/// </summary>
-		/// <param name="num1"></param>
-		/// <param name="num2"></param>
-		/// <returns></returns>
+
 
 
 
@@ -604,26 +608,41 @@ namespace VMS.TPS
 		}
 
 
-		/// <summary>
-		/// Gets the maximum SSD for each junction in a TBI/TMI plan on the left and right side, assumes that maximum SSD is limited to lateral side
-		/// ASSUMPTION: fixed field size...
-		/// </summary>
-		/// <param name="plan"></param>
-		/// <returns></returns>
-		private string GetMaxSSDJunctions(PlanSetup plan)
+
+        #region TMI operations
+
+		//TODO: compare body bounds with image size and check if margin is enough
+
+
+        /// <summary>
+        /// Gets the maximum SSD for each junction in a TBI/TMI plan
+        /// ASSUMPTION: fixed field size...
+        /// </summary>
+        /// <param name="plan"></param>
+        /// <returns></returns>
+        private string GetMaxSSDJunctions(PlanSetup plan)
 		{
-			// TODO: need to check if all iso are positioned in same lat and vrt value first
+			// need to check if all isocenters are positioned in the same lat and vrt value
 			StructureSet ss = plan.StructureSet;
 			Image image = ss.Image;
 			Structure structure = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type, might want to use PTV_Total instead
 			string junkPosZ = string.Empty;
-			// make list of isocenter positions
+			// get list of isocenter positions
 			List<VVector> isos = IsocentersInPlan(plan);
 			// debug
 			for (int i = 0; i < isos.Count; i++)
 			{
 				VVector junkEclipse = image.DicomToUser(isos[i], plan);
 				junkPosZ += "iso " + i + ":\t" + (junkEclipse.z / 10).ToString("0.0") + "\n";
+			}
+
+			if (isos.Count == 1)
+            {
+				junkPosZ += "** Only one isocenter, no checks can be done for this";
+            }
+            else if (isos.Any(i => i.x != isos[0].x || i.y != isos[0].y))
+            {
+				junkPosZ += "** Please adjust all isocenters to identical positions in vrt and lat";
 			}
 
 			List<VVector> junctionPositions = new List<VVector>(); // TODO: depends on field size...
@@ -638,20 +657,9 @@ namespace VMS.TPS
 				junkPosZ += "junktion " + i + ":\t" + (junkEclipse.z / 10).ToString("0.0") + "\n";
 			}
 
-			double lat1 = structure.MeshGeometry.Bounds.X;
-			double lat2 = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX;
-			double vrt1 = structure.MeshGeometry.Bounds.Y;
-			double vrt2 = structure.MeshGeometry.Bounds.Y + structure.MeshGeometry.Bounds.SizeY;
-			//double searchRadius = 0.0;
-			// check the max distance from junction/iso to the four corners of the bounds of the structure, same values for all junctions
-			double[] dist = new double[4];
 
-			dist[0] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat1, 2) + Math.Pow(junctionPositions[0].y - vrt2, 2));
-			dist[1] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat2, 2) + Math.Pow(junctionPositions[0].y - vrt2, 2));
-			dist[2] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat1, 2) + Math.Pow(junctionPositions[0].y - vrt1, 2));
-			dist[3] = Math.Sqrt(Math.Pow(junctionPositions[0].x - lat2, 2) + Math.Pow(junctionPositions[0].y - vrt1, 2));
-			
-			double searchRadius = dist.Max();
+
+			double searchRadius = IsoToStructureBoundsMax(structure, junction);
 			VVector exitPos = new VVector();
 			VVector[] maxDistancePosition = new VVector[junctionPositions.Count];
 			double[] maxDistance = new double[junctionPositions.Count];
@@ -671,7 +679,6 @@ namespace VMS.TPS
 					// TODO: add condition if segment profile don't intersect with the structure. Use of LastOrDefault uncertain what Default is 
 					SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(200)).Where(s => s.Value == true).LastOrDefault();
 					//convert from Type Point to VVector
-					var structureOutside = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(100)).Where(s => s.Value == false);
 					exitPos.x = structureExitPoint.Position.x;
 					exitPos.y = structureExitPoint.Position.y;
 					exitPos.z = structureExitPoint.Position.z;
@@ -694,9 +701,9 @@ namespace VMS.TPS
 				junkPosZ += "Max distance:\t" + (maxDistance[i] / 10).ToString("0.0") + "\n";
 			}
 
-			junkPosZ += "\nMin SSD:\t" + (100 - maxDistance.Max() / 10).ToString("0.0") + "\n";
+			junkPosZ += "\nMin SSD:\t" + (100 - maxDistance.Max() / 10).ToString("0.0") + "\n\n";
 
-			junkPosZ += CranCoverage(plan);
+			junkPosZ += TMICranialCoverage(plan);
 
 			return junkPosZ;
 
@@ -706,31 +713,112 @@ namespace VMS.TPS
 
 		}
 
-		/// <summary>
-		/// Determine the field size nessesary to cover the PTV in all angles for 90 deg coll
-		/// </summary>
-		/// <param name="plan"></param>
-		/// <returns></returns>
-		private string CranCoverage(PlanSetup plan)
+        //public List<VVector> TMISuggestedIsocentersHFS(StructureSet ss)
+        //      {
+        //		Lateral; even mm based on geometric average? only deviate from zero if larger than 5 mm? Or if > 5 mm and delta < 20
+		//		Vertical; even mm or even cm? based on mean of weighted center and geometric center, probably to low; geometric center
+		//		Long: 1:st iso: even cm! coverage ptv cran + margin 3 mm, round ceiling, yep
+		//		Long: iteratively try with 20 find smallest SSD all junctions, if necessary -> 19, also consider vrt and lat
+        //      }
+
+
+
+
+
+
+
+
+        /// <summary>
+        /// Determine the isocenter position necessary to cover the cranial PTV in all angles for 90 deg coll and x2 13.5 cm
+        /// </summary>
+        /// <param name="plan"></param>
+        /// <returns></returns>
+        private string TMICranialCoverage(PlanSetup plan)
 		{
 			// TODO: need to check if all iso are positioned in same lat and vrt value first
 			StructureSet ss = plan.StructureSet;
 			Image image = ss.Image;
 			Structure structure = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type, might want to use PTV_Total instead
-			string junkPosZ = string.Empty;
+			string result = string.Empty;
 			Beam cranBeam = plan.Beams.Where(b => b.Id == "1").FirstOrDefault();
 			VVector isoPos = cranBeam.IsocenterPosition;
-			double assumedFieldsize = 135;  // TODO: Check the actual field size...    **********************************
+			double assumedFieldsize = 135;  // TODO: Check the actual field size in cranial direction...    **********************************double x1 = cranBeam.ControlPoints.First. ... nope
 
-			//double x1 = cranBeam.ControlPoints.First.
 			string debug = string.Empty;
+			
+			// check the max distance from junction/iso to the four corners of the bounds of the structure, same values for all junctions
+			double searchRadius = IsoToStructureBoundsMax(structure, isoPos);
+			             
+			// Rotate around the structure with origo in iso and check intersection with structure. Report optimal position
+			// of iso to cover PTV. Enough to scan from iso to outer position determined by scan radius, divergence and field size
 
+			int anglesIntersecting = 0;
+ 
+			double zOffsetIso = assumedFieldsize;
+			double zOffsetEnd = assumedFieldsize * (1000 - searchRadius) / 1000;
+
+			anglesIntersecting = NrAnglesIntersectStructure(structure, cranBeam, searchRadius, zOffsetIso, zOffsetEnd);
+			
+			VVector optimalPosDicom = isoPos;
+			optimalPosDicom.z = structure.MeshGeometry.Bounds.Y - 10; // start scanning 10 mm in from structure cranial bounds 
+
+            switch (anglesIntersecting)
+            {
+				case 0:
+					result += "Cranial part of PTV covered ok.\n";
+					break;
+				case 360:
+					result += "** Cranial part of PTV not covered!\n";
+					break;
+                default:
+					result += "Cranial part of PTV not covered in all angles." + "(" + anglesIntersecting + "/360)\n";
+					break;
+            }
+
+	
+			// Scan from 10 mm into structure and outwards until no intersection with the structure occurs, step size 1 mm
+			for (int i = 0; i < 30; i++)
+            {
+				anglesIntersecting = NrAnglesIntersectStructure(structure, cranBeam, searchRadius, zOffsetIso + i, zOffsetEnd + i);
+				result += anglesIntersecting + ", ";
+                if (anglesIntersecting == 0)
+                {
+					result += "To precisely cover the cranial part of PTV_Total in all angles, given the planned isocenter position in lat and vrt, the z-position is: ";
+					optimalPosDicom.z += i;
+					VVector optimalPos = image.DicomToUser(optimalPosDicom, plan);
+					result += (optimalPos.z / 10).ToString("0.0") + " cm\n";
+					break;
+				}
+			}
+			
+			return result;
+		}
+
+
+		/// <summary>
+		/// Maximum distance [mm] in x-y-plane from given Dicom coordinate to outer bounds of structure
+		/// </summary>
+		/// <param name="structure"></param>
+		/// <param name="isoPos"></param>
+		/// <returns></returns>
+		public double IsoToStructureBoundsMax(Structure structure, VVector isoPos) 
+		{
 			double lat1 = structure.MeshGeometry.Bounds.X;
 			double lat2 = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX;
+			/*
+			if (image.ImagingOrientation == PatientOrientation.HeadFirstSupine)
+            {
+				lat2 = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX;
+            }
+            else
+            {
+				lat2 = structure.MeshGeometry.Bounds.X - structure.MeshGeometry.Bounds.SizeX;
+			}
+			*/
+			// maybe use target.MeshGeometry.Positions.Max(p => p.Z)
 			double vrt1 = structure.MeshGeometry.Bounds.Y;
 			double vrt2 = structure.MeshGeometry.Bounds.Y + structure.MeshGeometry.Bounds.SizeY;
-			//double searchRadius = 0.0;
-			// check the max distance from junction/iso to the four corners of the bounds of the structure, same values for all junctions
+
 			double[] dist = new double[4];
 
 			dist[0] = Math.Sqrt(Math.Pow(isoPos.x - lat1, 2) + Math.Pow(isoPos.y - vrt2, 2));
@@ -738,58 +826,42 @@ namespace VMS.TPS
 			dist[2] = Math.Sqrt(Math.Pow(isoPos.x - lat1, 2) + Math.Pow(isoPos.y - vrt1, 2));
 			dist[3] = Math.Sqrt(Math.Pow(isoPos.x - lat2, 2) + Math.Pow(isoPos.y - vrt1, 2));
 
-			double searchRadius = dist.Max();
+			return dist.Max();
+		}
 
 
-			// 
-			debug += "searchRadius: " + searchRadius.ToString("0.0") + "\n";
-			             
+		/// <summary>
+		/// Calculates nr of angles that intersects a structure when profiling from iso (+offset z) to endpoint defined by
+		/// searchradius and offset z from iso. Parameters in mm and Dicom coordinates.
+		/// </summary>
+		/// <param name="structure"></param>
+		/// <param name="beam"></param>
+		/// <param name="searchRadius"></param>
+		/// <param name="zOffsetStart"></param>
+		/// <param name="zOffsetEnd"></param>
+		/// <param name="angleIncrement"></param>
+		/// <returns></returns>
+		public int  NrAnglesIntersectStructure(Structure structure, Beam beam, double searchRadius, double zOffsetStart, double zOffsetEnd, double angleIncrement = 1)
+        {
+			VVector iso = beam.IsocenterPosition;
+			VVector startPoint = iso;
+			VVector endPoint = iso;
+			startPoint.z += zOffsetStart;
+			endPoint.z += zOffsetEnd;
 
-			// rotate around the structure with origo in iso and check if intersection with structure, if so recommend move iso
-			// enough to scan from iso to outer position determined by scanradius and z by divergence and field size
-			double z1 = isoPos.z + assumedFieldsize;
-			double z2 = isoPos.z + assumedFieldsize * (1000 - searchRadius) / 1000; // mm?
-			VVector startPoint = isoPos;
-			startPoint.z = z1;
-			debug += "startpoint z: " + (image.DicomToUser(startPoint, plan).z / 10).ToString("0.0") + "\n";
-			VVector endPoint = new VVector();
-			endPoint.z = z2;
-			int anglesIntersecting = 0;
-			for (int angle = 0; angle < 360; angle++)
+			int nrAnglesIntersecting = 0;
+			for (double angle = 0; angle < 360; angle += angleIncrement)
 			{
-				double x = cranBeam.IsocenterPosition.x + searchRadius * Math.Cos(angle * Math.PI / 180);
-				double y = cranBeam.IsocenterPosition.y + searchRadius * Math.Sin(angle * Math.PI / 180);
-
-				endPoint.x = x;
-				endPoint.y = y;
+				endPoint.x = iso.x + searchRadius * Math.Cos(angle * Math.PI / 180);
+				endPoint.y = iso.y + searchRadius * Math.Sin(angle * Math.PI / 180);
 
 				var structureOutside = structure.GetSegmentProfile(startPoint, endPoint, new BitArray(100)).Where(s => s.Value == false);
-                if (structureOutside.Count() != 100)
-                {
-					anglesIntersecting++;
-                }
+				if (structureOutside.Count() != 100)
+				{
+					nrAnglesIntersecting++;
+				}
 			}
-
-			//junkPosZ += intersect + debug;
-            if (anglesIntersecting == 360)
-            {
-				junkPosZ += "Cranial part of PTV not covered!\n";
-            }
-            else if (anglesIntersecting > 0)
-            {
-				junkPosZ += "Cranial part of PTV not covered in all angles, " + anglesIntersecting + "\n";
-			}
-            else
-            {
-				junkPosZ += "Cranial part of PTV covered ok\n";
-			}
-			return junkPosZ;
-			// Note that all positions are still in dicom coordinates and distances in mm
-
-			//Delta = 2*x*SSD/iso för att precis toucha…
-			//där x är fältstorlek på iso för den bländare x1 eller x2 som utgör skarven(13.5 cm) och SSD = 100 - maximala längden på vektor som utgår från iso till PTVs yttersta gräns i varje vinkel
-			// hur räkna ut minsta överlapp?
-
+			return nrAnglesIntersecting;
 		}
 
 		/// <summary>
@@ -803,7 +875,7 @@ namespace VMS.TPS
 			List<VVector> isos = new List<VVector>();
 			foreach (var beam in plan.Beams.OrderByDescending(b => b.IsocenterPosition.z).ThenBy(b => b.IsocenterPosition.x).ThenBy(b => b.IsocenterPosition.y))
 			{
-				if (isos.Any(i => i.z == beam.IsocenterPosition.z && i.z == beam.IsocenterPosition.z && i.z == beam.IsocenterPosition.z) == false)
+				if (isos.Any(i => i.x == beam.IsocenterPosition.x && i.y == beam.IsocenterPosition.y && i.z == beam.IsocenterPosition.z) == false)
 				{
 					isos.Add(beam.IsocenterPosition);
 				}
@@ -829,12 +901,17 @@ namespace VMS.TPS
 				VVector gCEclipse = image.DicomToUser(gCenter, plan);
 				VVector wCenter = body.CenterPoint;
 				VVector wCEclipse = image.DicomToUser(wCenter, plan);
-			results = "Body weighted center:\tvrt: " + (wCEclipse.y / 10).ToString("0.0") + "\tlat: " + (wCEclipse.x / 10).ToString("0.0") + "\n" +
-					"Body geometric center:\tvrt: " + (gCEclipse.y / 10).ToString("0.0") + "\tlat: " + (gCEclipse.x / 10).ToString("0.0") + "\n";
+			results = "Body weighted center: \tvrt: " + (wCEclipse.y / 10).ToString("0.0") + "\tlat: " + (wCEclipse.x / 10).ToString("0.0") + "\n" +
+					"Body geometric center: \tvrt: " + (gCEclipse.y / 10).ToString("0.0") + "\tlat: " + (gCEclipse.x / 10).ToString("0.0") + "\n";
 			}
 			return results;
 		}
 
+		/// <summary>
+		/// Calculates geometric center of structure based on Bounds in Dicom coordinates
+		/// </summary>
+		/// <param name="structure"></param>
+		/// <returns></returns>
 		private VVector GetStructureGeometricCenter(Structure structure) 
 		{
             VVector geomCenter = new VVector
@@ -894,17 +971,17 @@ namespace VMS.TPS
 
 			MessageBox.Show(sumPlans);
 		}
+		#endregion
+
+		#region Plan Category determination
 
 
-        #region Plan Category determination
-
-
-        /// <summary>
-        /// Basic check for which plan category the active plan falls into
-        /// </summary>
-        /// <param name="plan"></param>
-        /// <param name="planCat"></param>
-        private void CheckPlanCategory(PlanSetup plan, ref PlanCat planCat)
+		/// <summary>
+		/// Basic check for which plan category the active plan falls into
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <param name="planCat"></param>
+		private void CheckPlanCategory(PlanSetup plan, ref PlanCat planCat)
 		{
 			
 			if (IsPlanElectron(plan))
