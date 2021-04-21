@@ -16,6 +16,7 @@ using System.Collections;
 using System.Text;
 
 
+
 /* TODO: 
  * TODO: 
  * TODO Plan sum; foreach plan: check, easier to do in build and wpf...
@@ -165,7 +166,7 @@ namespace VMS.TPS
 			Dicom
 		}
 
-		public static double ScaleConv(double val, Scale fromScale, Scale toScale, Machine.Axis axis)
+		public static double ScaleConv(double val, Scale fromScale, Scale toScale, Machine.Axis axis, bool ExtendedFlag = false)
         {
             switch (axis)
             {
@@ -176,7 +177,7 @@ namespace VMS.TPS
                             switch (toScale)
                             {
                                 case Scale.VarianIEC:
-                                    if (val >= 0 && val <= 180 )
+                                    if (val >= 0 && val <= 180 && ExtendedFlag == false )
                                     {
 										val += 180;
                                     }
@@ -309,7 +310,7 @@ namespace VMS.TPS
 
 			int nrOfJaws = 4;
 
-			int nrCP = beam.ControlPoints.Count();
+			int nrCP = beam.ControlPoints.Count;
 			double[] cpTime = new double[nrCP];
 			double[] deltaGantry = new double[nrCP];
 			double[] gantrySpeed = new double[nrCP];
@@ -336,7 +337,7 @@ namespace VMS.TPS
 			// Assumptions: dose rate modulation is instant, MLC speed and acceleration not an issue (might be an issue for banks or for larger MLC leaves, unknown).
 			// Time needed from one cp to the next is determined by the parameter that requires the most time, i.e calculate the minimum time needed for each axis
 
-			for (int i = 1; i < beam.ControlPoints.Count(); i++)
+			for (int i = 1; i < beam.ControlPoints.Count; i++)
 			{
 				// time needed to deliver the delta MU with specified dose rate
 				deltaMU = totalMU * (beam.ControlPoints[i].MetersetWeight - beam.ControlPoints[i - 1].MetersetWeight);
@@ -412,7 +413,7 @@ namespace VMS.TPS
 		/// <param name="v0"></param>
 		/// <param name="axis"></param>
 		/// <returns></returns>
-		private static double GetMinTravelTime(double s, double v0, Machine.Axis axis)
+		public static double GetMinTravelTime(double s, double v0, Machine.Axis axis)
 		{
 			double vMax = 1, a = 1, t;
 			switch (axis)
@@ -431,7 +432,7 @@ namespace VMS.TPS
 					break;
 			}
 
-			//The sign of s, vmax and acceleration should always be the same when calculating minimum time 
+			//The sign of s and vmax (acceleration?) should always be the same when calculating minimum time 
 			int movementDirection = (int)(s / Math.Abs(s));
 
 			vMax *= movementDirection;
@@ -463,12 +464,12 @@ namespace VMS.TPS
 		/// <summary>
 		/// Calculates the absolut difference in degrees between two angles considering the scale and axis.
 		/// Example: difference between gantry angle 170 and 190 (IEC) should be 140 due to gantry movement restictions. 
-		/// TODO: Extended range for gantry angles unhandled, no flag for this in esapi. 
+		/// TODO: Extended range for gantry angles unhandled, no flag for this in esapi (actually there is in 16.1.. wohoo!). 
 		/// </summary>
 		/// <param name="angleStart"></param>
 		/// <param name="angleEnd"></param>
 		/// <returns></returns>
-		private static double DeltaAngle(Double angleStart, Double angleEnd, Conversion.Scale scale, Machine.Axis axis)
+		public static double DeltaAngle(Double angleStart, Double angleEnd, Conversion.Scale scale, Machine.Axis axis)
 		{
 			//Convert to Varian machine scale before calculating delta angle 
 			angleStart = Conversion.ScaleConv(angleStart, scale, Conversion.Scale.VarianIEC, axis);
@@ -609,18 +610,35 @@ namespace VMS.TPS
 
 
 
-        #region TMI operations
+		#region TMI operations
 
 		//TODO: compare body bounds with image size and check if margin is enough
+		// assuming we have two CT, BODY is contoured on both, possible to calculate total length; detemining factor for iso distances and field sizes
+		// Dicom coordinates last iso HFS to FFS-CT?
+		//when replacing the sixth iso, first iso should be placed to cover: junctionpos + 3.5 + 20 - calculated delta (18-20 cm)) : nope
+		// nope junction position for structure in max x-y distance based on the divergens of the chosen field size
+		// already have this! 
+		// ZisoFFS1 = junctionpos5_Z -fieldsize + maxdistance*fieldsize/iso
+		// Ex: junctionpoz5Z = 0, Fieldsize = 13.5 maxdistance = 25;    0 - 13.5 + 25 * 13.5 / 100 = -10.1 (dvs ungefär halva delta)
+		// wtf... if we use field size 28 (14), can use the same iso as the fake one in HFS... 
 
 
-        /// <summary>
-        /// Gets the maximum SSD for each junction in a TBI/TMI plan
-        /// ASSUMPTION: fixed field size...
-        /// </summary>
-        /// <param name="plan"></param>
-        /// <returns></returns>
-        private string GetMaxSSDJunctions(PlanSetup plan)
+		//     Structure structure = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();
+		//     int margin = 0; // 10 mm margin added in critical places if no PTV_Total contoured
+		//if (structure == null || structure.IsEmpty)
+		//{
+		//	Structure structure = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();
+		//     margin = 10;
+		// }
+
+
+		/// <summary>
+		/// Gets the maximum SSD for each junction in a TBI/TMI plan
+		/// ASSUMPTION: same fixed field size for every iso giving the junctions in the middle between the isos
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <returns></returns>
+		private string GetMaxSSDJunctions(PlanSetup plan)
 		{
 			// need to check if all isocenters are positioned in the same lat and vrt value
 			StructureSet ss = plan.StructureSet;
@@ -638,11 +656,11 @@ namespace VMS.TPS
 
 			if (isos.Count == 1)
             {
-				junkPosZ += "** Only one isocenter, no checks can be done for this";
+				junkPosZ += "** Only one isocenter, no checks can be done for this\n";
             }
             else if (isos.Any(i => i.x != isos[0].x || i.y != isos[0].y))
             {
-				junkPosZ += "** Please adjust all isocenters to identical positions in vrt and lat";
+				junkPosZ += "** Please adjust all isocenters to identical positions in vrt and lat\n";
 			}
 
 			List<VVector> junctionPositions = new List<VVector>(); // TODO: depends on field size...
@@ -703,7 +721,11 @@ namespace VMS.TPS
 
 			junkPosZ += "\nMin SSD:\t" + (100 - maxDistance.Max() / 10).ToString("0.0") + "\n\n";
 
-			junkPosZ += TMICranialCoverage(plan);
+            if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
+            {
+				junkPosZ += TMICranialCoverage(plan);
+			}
+
 
 			return junkPosZ;
 
@@ -720,11 +742,6 @@ namespace VMS.TPS
 		//		Long: 1:st iso: even cm! coverage ptv cran + margin 3 mm, round ceiling, yep
 		//		Long: iteratively try with 20 find smallest SSD all junctions, if necessary -> 19, also consider vrt and lat
         //      }
-
-
-
-
-
 
 
 
@@ -757,10 +774,9 @@ namespace VMS.TPS
 			double zOffsetIso = assumedFieldsize;
 			double zOffsetEnd = assumedFieldsize * (1000 - searchRadius) / 1000;
 
-			anglesIntersecting = NrAnglesIntersectStructure(structure, cranBeam, searchRadius, zOffsetIso, zOffsetEnd);
+			anglesIntersecting = NrAnglesIntersectStructure(structure, isoPos, searchRadius, zOffsetIso, zOffsetEnd);
 			
-			VVector optimalPosDicom = isoPos;
-			optimalPosDicom.z = structure.MeshGeometry.Bounds.Y - 10; // start scanning 10 mm in from structure cranial bounds 
+
 
             switch (anglesIntersecting)
             {
@@ -775,25 +791,78 @@ namespace VMS.TPS
 					break;
             }
 
-	
-			// Scan from 10 mm into structure and outwards until no intersection with the structure occurs, step size 1 mm
-			for (int i = 0; i < 30; i++)
-            {
-				anglesIntersecting = NrAnglesIntersectStructure(structure, cranBeam, searchRadius, zOffsetIso + i, zOffsetEnd + i);
-				result += anglesIntersecting + ", ";
-                if (anglesIntersecting == 0)
-                {
-					result += "To precisely cover the cranial part of PTV_Total in all angles, given the planned isocenter position in lat and vrt, the z-position is: ";
-					optimalPosDicom.z += i;
-					VVector optimalPos = image.DicomToUser(optimalPosDicom, plan);
-					result += (optimalPos.z / 10).ToString("0.0") + " cm\n";
-					break;
-				}
-			}
-			
+
+			// Scan from where 10 mm of field size at iso is inside z-position of max cranial part of structure and outwards
+			// until no intersection with the structure occurs, step size 1 mm
+			//VVector optimalPosDicom = isoPos;
+			//optimalPosDicom.z = structure.MeshGeometry.Positions.Max(p => p.Z) - 10 - assumedFieldsize; 
+
+			//for (int i = 0; i < 30; i++)
+			//         {
+			//	anglesIntersecting = NrAnglesIntersectStructure(structure, optimalPosDicom, searchRadius, zOffsetIso + i, zOffsetEnd + i);
+			//	result += anglesIntersecting + ", ";
+			//             if (anglesIntersecting == 0)
+			//             {
+			//		result += "To precisely cover the cranial part of PTV_Total in all angles, given the planned isocenter position in lat and vrt, the z-position is: ";
+			//		optimalPosDicom.z += i;
+			//		VVector optimalPos = image.DicomToUser(optimalPosDicom, plan);
+			//		result += (optimalPos.z / 10).ToString("0.0") + " cm\n";
+			//		break;
+			//	}
+			//}
+
+			VVector optimalPos = image.DicomToUser(ZposCoverAllAngles(structure, isoPos, assumedFieldsize, true), plan);
+			result += "To precisely cover the cranial part of PTV_Total in all angles, given the planned isocenter position in lat and vrt, the z-position is: ";
+			result += (optimalPos.z / 10).ToString("0.0") + " cm\n";
 			return result;
 		}
 
+
+		/// <summary>
+		/// returns z-position of isocenter in dicom coordinates where given field size [mm] covers the structure in all angles
+		/// </summary>
+		/// <param name="structure"></param>
+		/// <param name="iso"></param>
+		/// <param name="fieldSize"></param>
+		/// <returns></returns>
+		public VVector ZposCoverAllAngles(Structure structure, VVector iso, double fieldSize, bool cranial) 
+		{
+			double searchRadius = IsoToStructureBoundsMax(structure, iso);
+			double zOffsetIso = fieldSize;
+			double zOffsetEnd = fieldSize * (1000 - searchRadius) / 1000;
+			VVector optimalPosDicom = iso;
+			double anglesIntersecting;
+            if (cranial)
+            {
+				optimalPosDicom.z = structure.MeshGeometry.Positions.Max(p => p.Z) - 10 - fieldSize;
+				for (int i = 0; i < 50; i++)
+				{
+					anglesIntersecting = NrAnglesIntersectStructure(structure, optimalPosDicom, searchRadius, zOffsetIso + i, zOffsetEnd + i);
+					if (anglesIntersecting == 0)
+					{
+						optimalPosDicom.z += i;
+						break;
+					}
+				}
+            }
+            else // caudal
+            {
+				optimalPosDicom.z = structure.MeshGeometry.Positions.Min(p => p.Z) + 10 + fieldSize;
+				for (int i = 0; i < 50; i++)
+				{
+					anglesIntersecting = NrAnglesIntersectStructure(structure, optimalPosDicom, searchRadius, -zOffsetIso - i, -zOffsetEnd - i);
+					if (anglesIntersecting == 0)
+					{
+						optimalPosDicom.z -= i;
+						break;
+					}
+				}
+			}
+			return optimalPosDicom;
+		}
+
+
+	
 
 		/// <summary>
 		/// Maximum distance [mm] in x-y-plane from given Dicom coordinate to outer bounds of structure
@@ -841,9 +910,8 @@ namespace VMS.TPS
 		/// <param name="zOffsetEnd"></param>
 		/// <param name="angleIncrement"></param>
 		/// <returns></returns>
-		public int  NrAnglesIntersectStructure(Structure structure, Beam beam, double searchRadius, double zOffsetStart, double zOffsetEnd, double angleIncrement = 1)
+		public int  NrAnglesIntersectStructure(Structure structure, VVector iso, double searchRadius, double zOffsetStart, double zOffsetEnd, double angleIncrement = 1)
         {
-			VVector iso = beam.IsocenterPosition;
 			VVector startPoint = iso;
 			VVector endPoint = iso;
 			startPoint.z += zOffsetStart;
@@ -2203,8 +2271,8 @@ namespace VMS.TPS
         {
 			double controlSeqTime;
 			double treatTime = 0;
-			double maxGantrySpeed = 6;      // deg/s
-			double maxJawSpeed = 12.5;      // mm/s
+
+
 			double manualBeamOnTime = 6;    // s , estimation of time needed to manually push beam on, as opposed to automation
 
 			List<double> mechMovementTime = new List<double>();
@@ -2222,8 +2290,8 @@ namespace VMS.TPS
 			// control sequens and energy change happens parallel with, and independent to, mechanical movements
             for (int i = 1; i < cpFirst.Count(); i++)
             {
-				mechMovementTime.Add(DeltaAngle(cpLast[i - 1].GantryAngle, cpFirst[i].GantryAngle)/maxGantrySpeed);
-				mechMovementTime.Add(MaxDeltaJaw(cpLast[i - 1], cpFirst[i]) / maxJawSpeed);
+				mechMovementTime.Add(DeltaAngle(cpLast[i - 1].GantryAngle, cpFirst[i].GantryAngle)/Machine.GantryMaxSpeed);
+				mechMovementTime.Add(MaxDeltaJaw(cpLast[i - 1], cpFirst[i]) / Machine.JawXMaxSpeed);
                 if (beamsInOrder[i-1].EnergyModeDisplayName.Equals(beamsInOrder[i]))
                 {
 					controlSeqTime = 10;
