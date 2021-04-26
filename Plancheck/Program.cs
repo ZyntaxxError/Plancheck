@@ -631,7 +631,18 @@ namespace VMS.TPS
 		//	Structure structure = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();
 		//     margin = 10;
 		// }
-
+		/*FFS
+ * iso1: origo + delta från HFS
+ * lastiso: ZposCoverAllAngles - fieldsize/2 
+ * maxdelta bestäms av min SSD och fieldsize, bör vara hela cm
+ * nrIsos = Round.ceiling(lastiso.z - iso.z)/maxdelta
+ * Actual delta: Round.Ceiling(lastiso.z - iso.z)/nrIsos
+ * 
+ * 
+ * 
+ * 
+ * 
+ */
 
 		/// <summary>
 		/// Gets the maximum SSD for each junction in a TBI/TMI plan
@@ -812,51 +823,55 @@ namespace VMS.TPS
 
 			List<VVector> isos = new List<VVector>();
 			double fieldSize = 135.0;
+			int maximumDelta = 200;
+			int minimumDelta = 180;
+			int cranialMargin = 3; // Extra cranial margin for buildup
 
 			//Lateral; even mm based on geometric average? only deviate from zero if larger than 5 mm? Or if > 1 cm and delta < 20
 			//    Vertical; even mm or even cm? based on mean of weighted center and geometric center, might be to low; geometric center
-			//    Long: 1:st iso: even cm!coverage ptv cran +margin 3 mm, round ceiling, yep
+			//    Long: 1:st iso: even cm? coverage ptv cran +margin 3 mm, round ceiling, yep
 			//    Long: iteratively try with 20 find smallest SSD all junctions, if necessary-> 19, also consider vrt and lat
 			Structure structure = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
 			VVector bodyGeoCenter = GetStructureGeometricCenter(structure);
 			VVector bodyWeightCenter = structure.CenterPoint;
 
-			VVector tempIso = ss.Image.UserOrigin;
+			VVector firstIsoCran = ss.Image.UserOrigin;
 
 			//isos[0] = ss.Image.UserOrigin;
 
-			tempIso.y = 10 * Math.Round((bodyGeoCenter.y + bodyWeightCenter.y) / 20, 0); // mean of geo and weight
+			firstIsoCran.y = Math.Round((bodyGeoCenter.y + bodyWeightCenter.y) / 2, 0); // mean of geo and weight
 
-			tempIso = ZposCoverAllAngles(structure, tempIso, 135, true);
+			firstIsoCran = ZposCoverAllAngles(structure, firstIsoCran, 135, true);
+			firstIsoCran.z += cranialMargin;
 			//tempIso.z = Math.Ceiling(tempIso.z / 10); // round long for first isocenter to upper cm
-			int delta = 200;
+
 
 			List<VVector> junctionPositions = new List<VVector>(); // TODO: assumes all field sizes the same
-			double maxDistance = 0;
-            for (delta = 200; delta < 180; delta -= 10)
 
+
+			// Iteration; check if overlap occurs in the junction regions for all angles, if not decrease delta
+			// and check again until minimmum acceptable delta reached. 
+			for (int delta = maximumDelta; delta >= minimumDelta; delta -= 10)
 			{
-				isos.Add(tempIso);
-
+				isos.Add(firstIsoCran);
+				VVector iso = firstIsoCran;
 				for (int i = 1; i < 6; i++)
 				{
-					tempIso.z -= delta;
-					isos.Add(tempIso);
+					iso.z -= delta;
+					isos.Add(iso);
 				}
 
-				// preliminary isocenters based only on maximum delta shift, make list of junctionpositions to check overlap
-				
+				// preliminary isocenters based on first isocenter and delta shift, make list of junctionpositions to check overlap
 				VVector junction = new VVector();
 				for (int i = 1; i < isos.Count; i++)
 				{
-					junction.x = isos[i].x;
-					junction.y = isos[i].y;
+					junction = isos[i];
 					junction.z = (isos[i].z + isos[i - 1].z) / 2;
 					junctionPositions.Add(junction);
 				}
 
-				//***************  find minimum SSD *********************
-				maxDistance = 0;
+				//find maximum distance from each junction position (lng) in isocenter plane (lat, vrt) to structure exitpoint (i.e. minimum SSD)
+				double maxDistance = 0;
 				for (int i = 0; i < junctionPositions.Count; i++)
 				{
 					double dist = MaxDistanceIsoToStructureArc(junctionPositions[i], structure);
@@ -866,7 +881,8 @@ namespace VMS.TPS
 					}
 				}
 
-                if (delta > 2 * fieldSize * (Machine.SID - (maxDistance)) / Machine.SID)
+				// break if condition is satisfied or if minimum acceptable delta is reached whether the condition is met or not
+				if (delta < 2 * fieldSize * (Machine.SID - (maxDistance)) / Machine.SID || delta == 180)
                 {
 					break;
                 }
@@ -879,26 +895,14 @@ namespace VMS.TPS
 
 
 
-			//} while (delta > 2 * fieldSize * (Machine.SID - (maxDistance)) / Machine.SID);
-
-
-
-
 			//// only adjust lat if delta < 19 cm and body 
 			//if (Math.Abs(isos[0].x - bodyGeoCenter.x) > 10)
-   //         {
+			//         {
 			//	lat = bodyGeoCenter.x;
 			//	//isos[0].x = bodyGeoCenter.x;
-
 			//}
 
-
-
-
-
 			return isos;
-
-
         }
 
 
