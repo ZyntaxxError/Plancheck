@@ -239,6 +239,7 @@ namespace VMS.TPS
 
 	public static class Machine
 	{
+		public const int SID = 1000;  // Source-isocenter-distance in mm
 		// speeds and accelerations (except Collimator) are mean values from trajectory logs, parameters vary somewhat depending on acceleration or deceleration, gravity etc 
 		// but should be close enough to calculate a fair estimation of beam-on time. Collimator speed taken from TrueBeam Specs, collimator acceleration is arbitrarily chosen.
 		public const int GantryMaxSpeed = 6;	// deg/s
@@ -647,6 +648,7 @@ namespace VMS.TPS
 			string junkPosZ = string.Empty;
 			// get list of isocenter positions
 			List<VVector> isos = IsocentersInPlan(plan);
+			//List<VVector> isos = TMISuggestedIsocentersHFS(plan.StructureSet);
 			// debug
 			for (int i = 0; i < isos.Count; i++)
 			{
@@ -656,14 +658,14 @@ namespace VMS.TPS
 
 			if (isos.Count == 1)
             {
-				junkPosZ += "** Only one isocenter, no checks can be done for this\n";
+				junkPosZ += "\n** Only one isocenter, no checks can be done for this\n";
             }
             else if (isos.Any(i => i.x != isos[0].x || i.y != isos[0].y))
             {
-				junkPosZ += "** Please adjust all isocenters to identical positions in vrt and lat\n";
+				junkPosZ += "\n** Please adjust all isocenters to identical positions in vrt and lat\n";
 			}
 
-			List<VVector> junctionPositions = new List<VVector>(); // TODO: depends on field size...
+			List<VVector> junctionPositions = new List<VVector>(); // TODO: assumes all field sizes the same
 			VVector junction = new VVector();
 			for (int i = 1; i < isos.Count; i++)
 			{
@@ -696,6 +698,7 @@ namespace VMS.TPS
 					endPoint.y = y;
 					// TODO: add condition if segment profile don't intersect with the structure. Use of LastOrDefault uncertain what Default is 
 					SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(200)).Where(s => s.Value == true).LastOrDefault();
+
 					//convert from Type Point to VVector
 					exitPos.x = structureExitPoint.Position.x;
 					exitPos.y = structureExitPoint.Position.y;
@@ -710,13 +713,24 @@ namespace VMS.TPS
                     }
                 }
 			}
-            // Note that all positions are still in dicom coordinates and distances in mm
-			
-            for (int i = 0; i < junctionPositions.Count; i++)
+			// Note that all positions are still in dicom coordinates and distances in mm
+
+			double fz = 0;
+			if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
+			{
+				fz = 13.5;
+            }
+            else
+            {
+				fz = 14.0;
+            }
+
+			for (int i = 0; i < junctionPositions.Count; i++)
             {
 				VVector maxDistPosEclipse = image.DicomToUser(maxDistancePosition[i], plan);
 				junkPosZ += "\n\nmaxpos(x,y,z) " + ":\t(" + (maxDistPosEclipse.x / 10).ToString("0.0") + ", " + (maxDistPosEclipse.y / 10).ToString("0.0") + ", " + (maxDistPosEclipse.z / 10).ToString("0.0") + ")\n";
 				junkPosZ += "Max distance:\t" + (maxDistance[i] / 10).ToString("0.0") + "\n";
+				junkPosZ += "Max delta to cover the junction in all angles: \t" + (2*fz*(100-(maxDistance[i] / 10))/100).ToString("0.0") + "\n";
 			}
 
 			junkPosZ += "\nMin SSD:\t" + (100 - maxDistance.Max() / 10).ToString("0.0") + "\n\n";
@@ -727,7 +741,29 @@ namespace VMS.TPS
 			}
 
 
+
+
+			List<VVector> tmiRecom = TMISuggestedIsocentersHFS(ss);
+			List<VVector> tmiRecomEclipse = new List<VVector>();
+            foreach (var iso in tmiRecom)
+            {
+				tmiRecomEclipse.Add(image.DicomToUser(iso, plan));
+            }
+
+
+
+
+			string recom = "\n\n Suggested isocenters: (x,y,z) \n";
+
+            foreach (var iso in tmiRecomEclipse)
+            {
+				recom += (iso.x / 10).ToString("0.0") + "\t" + (iso.y / 10).ToString("0.0") + "\t" + (iso.z / 10).ToString("0.0") + " \n";
+			}
+
+			MessageBox.Show(recom);
+
 			return junkPosZ;
+
 
 			//Delta = 2*x*SSD/iso för att precis toucha…
 			//där x är fältstorlek på iso för den bländare x1 eller x2 som utgör skarven(13.5 cm) och SSD = 100 - maximala längden på vektor som utgår från iso till PTVs yttersta gräns i varje vinkel
@@ -735,13 +771,135 @@ namespace VMS.TPS
 
 		}
 
-        //public List<VVector> TMISuggestedIsocentersHFS(StructureSet ss)
-        //      {
-        //		Lateral; even mm based on geometric average? only deviate from zero if larger than 5 mm? Or if > 5 mm and delta < 20
-		//		Vertical; even mm or even cm? based on mean of weighted center and geometric center, probably to low; geometric center
-		//		Long: 1:st iso: even cm! coverage ptv cran + margin 3 mm, round ceiling, yep
-		//		Long: iteratively try with 20 find smallest SSD all junctions, if necessary -> 19, also consider vrt and lat
-        //      }
+
+		public double MaxDistanceIsoToStructureArc(VVector iso, Structure structure)
+        {
+			// rotate around the structure with origo in iso and find the maximum distance
+			double maxDistance = 0;
+			double searchRadius = IsoToStructureBoundsMax(structure, iso);
+			int samples = (int)searchRadius;
+			for (int angle = 0; angle < 360; angle++)
+			{
+				double x = iso.x + searchRadius * Math.Cos(angle * Math.PI / 180);
+				double y = iso.y + searchRadius * Math.Sin(angle * Math.PI / 180);
+				VVector endPoint = iso;
+				endPoint.x = x;
+				endPoint.y = y;
+				// TODO: add condition if segment profile don't intersect with the structure. Use of LastOrDefault uncertain what Default is 
+				SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(iso, endPoint, new BitArray(samples)).Where(s => s.Value == true).LastOrDefault();
+
+                //convert from Type Point to VVector, may be unneccesary unless position is of interest
+                VVector exitPos = new VVector
+                {
+                    x = structureExitPoint.Position.x,
+                    y = structureExitPoint.Position.y,
+                    z = structureExitPoint.Position.z
+                };
+
+                double distance = Math.Sqrt(Math.Pow(iso.x - exitPos.x, 2) + Math.Pow(iso.y - exitPos.y, 2));
+
+				if (distance > maxDistance)
+				{
+					maxDistance = distance;
+				}
+			}
+			return maxDistance;
+		}
+
+
+		public List<VVector> TMISuggestedIsocentersHFS(StructureSet ss)
+		{
+
+			List<VVector> isos = new List<VVector>();
+			double fieldSize = 135.0;
+
+			//Lateral; even mm based on geometric average? only deviate from zero if larger than 5 mm? Or if > 1 cm and delta < 20
+			//    Vertical; even mm or even cm? based on mean of weighted center and geometric center, might be to low; geometric center
+			//    Long: 1:st iso: even cm!coverage ptv cran +margin 3 mm, round ceiling, yep
+			//    Long: iteratively try with 20 find smallest SSD all junctions, if necessary-> 19, also consider vrt and lat
+			Structure structure = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
+			VVector bodyGeoCenter = GetStructureGeometricCenter(structure);
+			VVector bodyWeightCenter = structure.CenterPoint;
+
+			VVector tempIso = ss.Image.UserOrigin;
+
+			//isos[0] = ss.Image.UserOrigin;
+
+			tempIso.y = 10 * Math.Round((bodyGeoCenter.y + bodyWeightCenter.y) / 20, 0); // mean of geo and weight
+
+			tempIso = ZposCoverAllAngles(structure, tempIso, 135, true);
+			//tempIso.z = Math.Ceiling(tempIso.z / 10); // round long for first isocenter to upper cm
+			int delta = 200;
+
+			List<VVector> junctionPositions = new List<VVector>(); // TODO: assumes all field sizes the same
+			double maxDistance = 0;
+            for (delta = 200; delta < 180; delta -= 10)
+
+			{
+				isos.Add(tempIso);
+
+				for (int i = 1; i < 6; i++)
+				{
+					tempIso.z -= delta;
+					isos.Add(tempIso);
+				}
+
+				// preliminary isocenters based only on maximum delta shift, make list of junctionpositions to check overlap
+				
+				VVector junction = new VVector();
+				for (int i = 1; i < isos.Count; i++)
+				{
+					junction.x = isos[i].x;
+					junction.y = isos[i].y;
+					junction.z = (isos[i].z + isos[i - 1].z) / 2;
+					junctionPositions.Add(junction);
+				}
+
+				//***************  find minimum SSD *********************
+				maxDistance = 0;
+				for (int i = 0; i < junctionPositions.Count; i++)
+				{
+					double dist = MaxDistanceIsoToStructureArc(junctionPositions[i], structure);
+					if (dist > maxDistance)
+					{
+						maxDistance = dist;
+					}
+				}
+
+                if (delta > 2 * fieldSize * (Machine.SID - (maxDistance)) / Machine.SID)
+                {
+					break;
+                }
+                else
+                {
+					isos.Clear();
+					junctionPositions.Clear();
+				}
+			}
+
+
+
+			//} while (delta > 2 * fieldSize * (Machine.SID - (maxDistance)) / Machine.SID);
+
+
+
+
+			//// only adjust lat if delta < 19 cm and body 
+			//if (Math.Abs(isos[0].x - bodyGeoCenter.x) > 10)
+   //         {
+			//	lat = bodyGeoCenter.x;
+			//	//isos[0].x = bodyGeoCenter.x;
+
+			//}
+
+
+
+
+
+			return isos;
+
+
+        }
 
 
 
@@ -772,7 +930,7 @@ namespace VMS.TPS
 			int anglesIntersecting = 0;
  
 			double zOffsetIso = assumedFieldsize;
-			double zOffsetEnd = assumedFieldsize * (1000 - searchRadius) / 1000;
+			double zOffsetEnd = assumedFieldsize * (Machine.SID - searchRadius) / Machine.SID;
 
 			anglesIntersecting = NrAnglesIntersectStructure(structure, isoPos, searchRadius, zOffsetIso, zOffsetEnd);
 			
@@ -791,26 +949,6 @@ namespace VMS.TPS
 					break;
             }
 
-
-			// Scan from where 10 mm of field size at iso is inside z-position of max cranial part of structure and outwards
-			// until no intersection with the structure occurs, step size 1 mm
-			//VVector optimalPosDicom = isoPos;
-			//optimalPosDicom.z = structure.MeshGeometry.Positions.Max(p => p.Z) - 10 - assumedFieldsize; 
-
-			//for (int i = 0; i < 30; i++)
-			//         {
-			//	anglesIntersecting = NrAnglesIntersectStructure(structure, optimalPosDicom, searchRadius, zOffsetIso + i, zOffsetEnd + i);
-			//	result += anglesIntersecting + ", ";
-			//             if (anglesIntersecting == 0)
-			//             {
-			//		result += "To precisely cover the cranial part of PTV_Total in all angles, given the planned isocenter position in lat and vrt, the z-position is: ";
-			//		optimalPosDicom.z += i;
-			//		VVector optimalPos = image.DicomToUser(optimalPosDicom, plan);
-			//		result += (optimalPos.z / 10).ToString("0.0") + " cm\n";
-			//		break;
-			//	}
-			//}
-
 			VVector optimalPos = image.DicomToUser(ZposCoverAllAngles(structure, isoPos, assumedFieldsize, true), plan);
 			result += "To precisely cover the cranial part of PTV_Total in all angles, given the planned isocenter position in lat and vrt, the z-position is: ";
 			result += (optimalPos.z / 10).ToString("0.0") + " cm\n";
@@ -820,6 +958,7 @@ namespace VMS.TPS
 
 		/// <summary>
 		/// returns z-position of isocenter in dicom coordinates where given field size [mm] covers the structure in all angles
+		/// either cranially or caudally
 		/// </summary>
 		/// <param name="structure"></param>
 		/// <param name="iso"></param>
@@ -829,7 +968,7 @@ namespace VMS.TPS
 		{
 			double searchRadius = IsoToStructureBoundsMax(structure, iso);
 			double zOffsetIso = fieldSize;
-			double zOffsetEnd = fieldSize * (1000 - searchRadius) / 1000;
+			double zOffsetEnd = fieldSize * (Machine.SID - searchRadius) / Machine.SID;
 			VVector optimalPosDicom = iso;
 			double anglesIntersecting;
             if (cranial)
@@ -976,7 +1115,7 @@ namespace VMS.TPS
 		}
 
 		/// <summary>
-		/// Calculates geometric center of structure based on Bounds in Dicom coordinates
+		/// Calculates geometric center of structure bounds in Dicom coordinates
 		/// </summary>
 		/// <param name="structure"></param>
 		/// <returns></returns>
