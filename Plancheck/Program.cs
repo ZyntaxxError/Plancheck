@@ -754,7 +754,7 @@ namespace VMS.TPS
 
 
 
-			List<VVector> tmiRecom = TMISuggestedIsocentersHFS(ss);
+			List<VVector> tmiRecom = TMISuggestedIsocentersHFS(plan);
 			List<VVector> tmiRecomEclipse = new List<VVector>();
             foreach (var iso in tmiRecom)
             {
@@ -818,9 +818,9 @@ namespace VMS.TPS
 		}
 
 
-		public List<VVector> TMISuggestedIsocentersHFS(StructureSet ss)
+		public List<VVector> TMISuggestedIsocentersHFS(PlanSetup plan)
 		{
-
+			StructureSet ss = plan.StructureSet;
 			List<VVector> isos = new List<VVector>();
 			double fieldSize = 135.0;
 			int maximumDelta = 200;
@@ -828,22 +828,33 @@ namespace VMS.TPS
 			int cranialMargin = 3; // Extra cranial margin for buildup
 
 			//Lateral; even mm based on geometric average? only deviate from zero if larger than 5 mm? Or if > 1 cm and delta < 20
-			//    Vertical; even mm or even cm? based on mean of weighted center and geometric center, might be to low; geometric center
-			//    Long: 1:st iso: even cm? coverage ptv cran +margin 3 mm, round ceiling, yep
+			//    Vertical; even mm or even cm? based on mean of weighted geometric center of lungsTotal and PTV_Total
+			//	  If trying to maximize delta; lateral shift has more effect
+			//    Long: 1:st iso: even cm? coverage ptv cran + margin 3 mm, round ceiling, yep
 			//    Long: iteratively try with 20 find smallest SSD all junctions, if necessary-> 19, also consider vrt and lat
-			Structure structure = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
-			VVector bodyGeoCenter = GetStructureGeometricCenter(structure);
-			VVector bodyWeightCenter = structure.CenterPoint;
+			Structure ptvTotal = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
+			VVector ptvGeoCenter = GetStructureGeometricCenter(ptvTotal);
 
+			Structure lungTotal = ss.Structures.Where(s => s.Id == "LungTotal" || s.Id == "Lung Total").SingleOrDefault();  // TODO: better to take dicom type
+			VVector lungGeoCenter = GetStructureGeometricCenter(lungTotal);
+			
+
+			// Set first cranial isocenter
 			VVector firstIsoCran = ss.Image.UserOrigin;
+			
+			firstIsoCran.y = (lungGeoCenter.y * 60 + ptvGeoCenter.y * 40) / 100;
 
-			//isos[0] = ss.Image.UserOrigin;
-
-			firstIsoCran.y = Math.Round((bodyGeoCenter.y + bodyWeightCenter.y) / 2, 0); // mean of geo and weight
-
-			firstIsoCran = ZposCoverAllAngles(structure, firstIsoCran, 135, true);
+			firstIsoCran = ZposCoverAllAngles(ptvTotal, firstIsoCran, 135, true);
 			firstIsoCran.z += cranialMargin;
-			//tempIso.z = Math.Ceiling(tempIso.z / 10); // round long for first isocenter to upper cm
+
+			Image image = plan.StructureSet.Image;
+			VVector eclipseRound = image.DicomToUser(firstIsoCran, plan);
+			//eclipseRound.x = Math.Round(eclipseRound.x * 10) / 10;
+			eclipseRound.y = Math.Round(eclipseRound.y / 10, 0) * 10;
+			eclipseRound.z = Math.Ceiling(eclipseRound.z / 10) * 10;
+			firstIsoCran = image.UserToDicom(eclipseRound, plan);
+
+
 
 
 			List<VVector> junctionPositions = new List<VVector>(); // TODO: assumes all field sizes the same
@@ -874,7 +885,7 @@ namespace VMS.TPS
 				double maxDistance = 0;
 				for (int i = 0; i < junctionPositions.Count; i++)
 				{
-					double dist = MaxDistanceIsoToStructureArc(junctionPositions[i], structure);
+					double dist = MaxDistanceIsoToStructureArc(junctionPositions[i], ptvTotal);
 					if (dist > maxDistance)
 					{
 						maxDistance = dist;
@@ -905,6 +916,57 @@ namespace VMS.TPS
 			return isos;
         }
 
+
+		// this should be in separate class, e.g. conversion
+		public enum EvenUnit
+        {
+			mm_up,
+			mm_down,
+			cm_up,
+			cm_down
+        }
+
+
+		//  This will probably not work... depends on plan, should only depend on image and then EvenUnit should be renamed to mm_cran etc
+		//  i.e. need to create own function for DicomToUser...
+		/// <summary>
+		/// Round dicom position so that it is represented by whole mm or cm in Eclipse in respect to user origin
+		/// </summary>
+		/// <param name="dicomPos"></param>
+		/// <param name="image"></param>
+		/// <param name="unit"></param>
+		/// <returns>rounded position in eclipse in dicom coordinates</returns>
+		public VVector RoundedPositionEclipse(VVector dicomPos, PlanSetup plan, EvenUnit unit)
+        {
+			Image image = plan.StructureSet.Image;
+			VVector eclipseRound = image.DicomToUser(dicomPos, plan);
+			
+            switch (unit)
+            {
+                case EvenUnit.mm_up:
+					eclipseRound.x = Math.Ceiling(eclipseRound.x);
+					eclipseRound.y = Math.Ceiling(eclipseRound.y);
+					eclipseRound.z = Math.Ceiling(eclipseRound.z);
+					break;
+                case EvenUnit.mm_down:
+					eclipseRound.x = Math.Floor(eclipseRound.x);
+					eclipseRound.y = Math.Floor(eclipseRound.y);
+					eclipseRound.z = Math.Floor(eclipseRound.z);
+					break;
+                case EvenUnit.cm_up:
+					eclipseRound.x = Math.Ceiling(eclipseRound.x * 10) / 10;
+					eclipseRound.y = Math.Ceiling(eclipseRound.y * 10) / 10;
+					eclipseRound.z = Math.Ceiling(eclipseRound.z * 10) / 10;
+					break;
+                case EvenUnit.cm_down:
+					eclipseRound.x = Math.Floor(eclipseRound.x * 10) / 10;
+					eclipseRound.y = Math.Floor(eclipseRound.y * 10) / 10;
+					eclipseRound.z = Math.Floor(eclipseRound.z * 10) / 10;
+					break;
+            }
+
+			return image.UserToDicom(eclipseRound, plan);
+		}
 
 
         /// <summary>
