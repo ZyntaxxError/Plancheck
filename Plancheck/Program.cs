@@ -749,12 +749,22 @@ namespace VMS.TPS
             if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
             {
 				junkPosZ += TMICranialCoverage(plan);
+            }
+
+
+
+			List<VVector> tmiRecom = new List<VVector>();
+			if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
+			{
+				tmiRecom = TMISuggestedIsocentersHFS(plan);
+            }
+            else
+            {
+				tmiRecom = TMISuggestedIsocentersFFS(plan);
 			}
 
 
-
-
-			List<VVector> tmiRecom = TMISuggestedIsocentersHFS(plan);
+			
 			List<VVector> tmiRecomEclipse = new List<VVector>();
             foreach (var iso in tmiRecom)
             {
@@ -915,6 +925,157 @@ namespace VMS.TPS
 
 			return isos;
         }
+
+		/*FFS
+* iso1: origo + delta från HFS
+* lastiso: ZposCoverAllAngles 
+* maxdelta bestäms av min SSD och fieldsize, bör vara hela cm
+* nrIsos = Round.ceiling(lastiso.z - iso.z)/maxdelta
+* Actual delta: Round.Ceiling(lastiso.z - iso.z)/nrIsos
+* 
+* 
+* 
+* 
+* 
+*/
+
+		// prereq: user origo placed in iso 5 from HFS-plan
+		// can use coordinates from Base dose HFS, as the isocenters may not have been placed according to suggestion... 
+		
+		public List<VVector> TMISuggestedIsocentersFFS(PlanSetup plan)
+		{
+			StructureSet ss = plan.StructureSet;
+			List<VVector> isos = new List<VVector>();
+			double fieldSizeFFS = 140.0;
+			double fieldSizeHFS = 135.0;
+			int maxDeltaHFS = 200;
+			int maximumDelta = 250;
+			int minimumDelta = 180;
+			Image image = ss.Image;
+			//int caudalMargin = 5; // Extra caudal margin for buildup
+
+			Structure ptvTotal = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
+
+			// origo should be placed at the last isocenter in HFS plan 
+			VVector lastIsoHFS = ss.Image.UserOrigin;
+
+			// Determine position of first iso FFS separately due to smaller field size for HFS means junction in different place
+			// Delta coordinates will be different and will be sent from origo, want good overlap so calculate with field size from HFS
+			VVector firstIsoFFS = lastIsoHFS;
+
+			string debug = string.Empty;
+
+
+			List<VVector> junctionPositions = new List<VVector>();
+
+			for (int delta = maxDeltaHFS; delta >= minimumDelta; delta -= 10)
+			{
+
+				firstIsoFFS.z = lastIsoHFS.z - delta;
+
+				VVector junction = lastIsoHFS;
+				junction.z = (firstIsoFFS.z + lastIsoHFS.z) / 2;
+
+				//find maximum distance from each junction position (lng) in isocenter plane (lat, vrt) to structure exitpoint (i.e. minimum SSD)
+				double maxDistance = MaxDistanceIsoToStructureArc(junction, ptvTotal);
+
+				// break if condition is satisfied or if minimum acceptable delta is reached whether the condition is met or not
+				if (delta < 2 * fieldSizeHFS * (Machine.SID - (maxDistance)) / Machine.SID || delta == 180)
+				{
+					debug += delta.ToString("0.0") + "\n";
+					break;
+				}
+
+			}
+
+
+
+
+			VVector debug1 = image.DicomToUser(lastIsoHFS, plan);
+			VVector debug2 = image.DicomToUser(firstIsoFFS, plan);
+
+			MessageBox.Show(debug + "first iso HFS and FFS : " + debug1.z.ToString("0.0") + "\t" + debug2.z.ToString("0.0"));
+
+
+
+
+
+			// Preliminary position for last iso FFS is determined by scanning which position the given field size covers all angles
+			VVector lastIsoFFS = firstIsoFFS;
+			lastIsoFFS = ZposCoverAllAngles(ptvTotal, lastIsoFFS, fieldSizeFFS, false);
+
+
+			// start value for number of isos, i.e. minimum number of isos using maximum delta
+			int minNrOfIsos = (int)Math.Ceiling(Math.Abs(firstIsoFFS.z - lastIsoFFS.z) / maximumDelta);
+
+			
+
+			//  TODO  !!!!!!!**** first iso handle separately, smaller field size
+			// Iteration; start with maximum delta, calculate nr of isos necessary, check if overlap occurs in the 
+			//junction regions for all angles, if not increase nr of isos and check again until minimmum acceptable delta reached. 
+			for (int nriso = minNrOfIsos; nriso < 8; nriso++)
+			{
+				isos.Add(firstIsoFFS);
+				VVector iso = firstIsoFFS;
+
+
+				// change delta to even cm based on number of isos
+				int delta = (int)Math.Ceiling((Math.Abs(firstIsoFFS.z - lastIsoFFS.z) / nriso) / 10) * 10;
+
+
+
+				for (int i = 1; i < nriso +1; i++)
+				{
+					iso.z -= delta;
+					isos.Add(iso);
+				}
+
+				// preliminary isocenters based on first isocenter and delta shift, make list of junctionpositions to check overlap
+				VVector junction = new VVector();
+				for (int i = 1; i < isos.Count; i++)
+				{
+					junction = isos[i];
+					junction.z = (isos[i].z + isos[i - 1].z) / 2;
+					junctionPositions.Add(junction);
+				}
+
+				//find maximum distance from each junction position (lng) in isocenter plane (lat, vrt) to structure exitpoint (i.e. minimum SSD)
+				double maxDistance = 0;
+				for (int i = 0; i < junctionPositions.Count; i++)
+				{
+					double dist = MaxDistanceIsoToStructureArc(junctionPositions[i], ptvTotal);
+					if (dist > maxDistance)
+					{
+						maxDistance = dist;
+					}
+				}
+
+				// break if condition is satisfied or if minimum acceptable delta is reached whether the condition is met or not
+				if (delta < 2 * fieldSizeFFS * (Machine.SID - (maxDistance)) / Machine.SID || delta == 180)
+				{
+					break;
+				}
+				else
+				{
+					isos.Clear();
+					junctionPositions.Clear();
+				}
+			}
+
+
+
+			//// only adjust lat if delta < 19 cm and body 
+			//if (Math.Abs(isos[0].x - bodyGeoCenter.x) > 10)
+			//         {
+			//	lat = bodyGeoCenter.x;
+			//	//isos[0].x = bodyGeoCenter.x;
+			//}
+
+			return isos;
+
+		}
+
+
 
 
 		// this should be in separate class, e.g. conversion
