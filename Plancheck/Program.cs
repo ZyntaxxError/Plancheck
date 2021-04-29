@@ -757,14 +757,15 @@ namespace VMS.TPS
 			if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
 			{
 				tmiRecom = TMISuggestedIsocentersHFS(plan);
+
             }
             else
             {
 				tmiRecom = TMISuggestedIsocentersFFS(plan);
 			}
+			TMIcheckifcutted(plan);
 
 
-			
 			List<VVector> tmiRecomEclipse = new List<VVector>();
             foreach (var iso in tmiRecom)
             {
@@ -779,6 +780,13 @@ namespace VMS.TPS
             foreach (var iso in tmiRecomEclipse)
             {
 				recom += (iso.x / 10).ToString("0.0") + "\t" + (iso.y / 10).ToString("0.0") + "\t" + (iso.z / 10).ToString("0.0") + " \n";
+			}
+
+			// Recommend position for Z_PTV5
+
+			if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
+			{
+				recom += "\nRecommended position for Z_PTV5 is between isocenter 5 and 6.";
 			}
 
 			MessageBox.Show(recom);
@@ -859,7 +867,6 @@ namespace VMS.TPS
 
 			Image image = plan.StructureSet.Image;
 			VVector eclipseRound = image.DicomToUser(firstIsoCran, plan);
-			//eclipseRound.x = Math.Round(eclipseRound.x * 10) / 10;
 			eclipseRound.y = Math.Round(eclipseRound.y / 10, 0) * 10;
 			eclipseRound.z = Math.Ceiling(eclipseRound.z / 10) * 10;
 			firstIsoCran = image.UserToDicom(eclipseRound, plan);
@@ -926,6 +933,70 @@ namespace VMS.TPS
 			return isos;
         }
 
+
+		public void TMIcheckifcutted(PlanSetup plan)
+        {
+			StructureSet ss = plan.StructureSet;
+			Image image = ss.Image;
+			// check body max cran against PTV_Total (Z_PTV1?)
+			//target.MeshGeometry.Positions.Max(p => p.Z)
+			Structure ptvTotal = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
+			Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type
+
+
+			double bodyMaxX = body.MeshGeometry.Positions.Max(p => p.X);
+			double bodyMinX = body.MeshGeometry.Positions.Min(p => p.X);
+			double bodyMaxY = body.MeshGeometry.Positions.Max(p => p.Y);
+			double bodyMinY = body.MeshGeometry.Positions.Min(p => p.Y);
+			double bodyMaxZ = body.MeshGeometry.Positions.Max(p => p.Z);
+			double bodyMinZ = body.MeshGeometry.Positions.Min(p => p.Z);
+			double ptvTotalMaxX = ptvTotal.MeshGeometry.Positions.Max(p => p.X);
+			double ptvTotalMinX = ptvTotal.MeshGeometry.Positions.Min(p => p.X);
+			double ptvTotalMaxY = ptvTotal.MeshGeometry.Positions.Max(p => p.Y);
+			double ptvTotalMinY = ptvTotal.MeshGeometry.Positions.Min(p => p.Y);
+			double ptvTotalMaxZ = ptvTotal.MeshGeometry.Positions.Max(p => p.Z);
+			double ptvTotalMinZ = ptvTotal.MeshGeometry.Positions.Min(p => p.Z);
+
+			string message = string.Empty;
+
+
+			message += " Distance from BODY to PTV_Total in direction: \n";
+
+            if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
+            {
+				message += "Cran:\t" + (ptvTotalMaxZ - bodyMaxZ).ToString("0") + " mm.\n";
+            }
+            else
+            {
+				message += "Caud:\t" + (ptvTotalMinZ - bodyMinZ).ToString("0") + " mm.\n";
+			}
+
+
+
+			
+			message += "Lat:\t" + (ptvTotalMaxX - bodyMaxX).ToString("0") + " mm.\n";
+			message += "Lat:\t" + (ptvTotalMinX - bodyMinX).ToString("0") + " mm.\n";
+			message += "Vrt:\t" + (ptvTotalMaxY - bodyMaxY).ToString("0") + " mm.\n";
+			message += "Vrt:\t" + (ptvTotalMinY - bodyMinY).ToString("0") + " mm.\n";
+
+
+			MessageBox.Show(message);
+
+
+
+
+
+
+		}
+
+
+
+
+
+
+
+
+
 		/*FFS
 * iso1: origo + delta från HFS
 * lastiso: ZposCoverAllAngles 
@@ -941,7 +1012,7 @@ namespace VMS.TPS
 
 		// prereq: user origo placed in iso 5 from HFS-plan
 		// can use coordinates from Base dose HFS, as the isocenters may not have been placed according to suggestion... 
-		
+		// TODO: Special case that need to be handled; short patient, enough with 1 isocenters, well... no need for script in that case if not used for auto plan
 		public List<VVector> TMISuggestedIsocentersFFS(PlanSetup plan)
 		{
 			StructureSet ss = plan.StructureSet;
@@ -965,14 +1036,12 @@ namespace VMS.TPS
 
 			string debug = string.Empty;
 
-
 			List<VVector> junctionPositions = new List<VVector>();
 
 			for (int delta = maxDeltaHFS; delta >= minimumDelta; delta -= 10)
 			{
 
 				firstIsoFFS.z = lastIsoHFS.z - delta;
-
 				VVector junction = lastIsoHFS;
 				junction.z = (firstIsoFFS.z + lastIsoHFS.z) / 2;
 
@@ -998,19 +1067,26 @@ namespace VMS.TPS
 
 
 
-
-
-			// Preliminary position for last iso FFS is determined by scanning which position the given field size covers all angles
+			// Preliminary position for last iso FFS is determined by scanning for the position where the given field size covers all angles
 			VVector lastIsoFFS = firstIsoFFS;
 			lastIsoFFS = ZposCoverAllAngles(ptvTotal, lastIsoFFS, fieldSizeFFS, false);
 
 
-			// start value for number of isos, i.e. minimum number of isos using maximum delta
+			// start value for number of isos, i.e. minimum number of isocenters using maximum delta
 			int minNrOfIsos = (int)Math.Ceiling(Math.Abs(firstIsoFFS.z - lastIsoFFS.z) / maximumDelta);
 
 			
 
-			//  TODO  !!!!!!!**** first iso handle separately, smaller field size
+
+
+
+
+
+
+
+
+
+
 			// Iteration; start with maximum delta, calculate nr of isos necessary, check if overlap occurs in the 
 			//junction regions for all angles, if not increase nr of isos and check again until minimmum acceptable delta reached. 
 			for (int nriso = minNrOfIsos; nriso < 8; nriso++)
