@@ -553,10 +553,10 @@ namespace VMS.TPS
 					CheckPlanNamingConvention(plan) +
 					CheckClinProt(plan) +
 					CheckTargetVolumeID(plan, plan.StructureSet) +
-					CheckCtvPtvPlanNumbering(plan, planCat) +
+					SBRTCtvPtvPlanNumbering(plan, planCat) +
 					CheckForBolus(plan, ref relevantDocuments) +
-					CheckFieldNamingConvention(course, plan) +
-					CheckStructureSet(plan, planCat);
+					CheckFieldNamingConvention(course, plan);
+
 
 
 
@@ -934,81 +934,98 @@ namespace VMS.TPS
         }
 
 
+		// should really check the Z_PTV:s as these are probably created by using a VOI and boolean, much harder to do though.
 		public void TMIcheckifcutted(PlanSetup plan)
         {
 			StructureSet ss = plan.StructureSet;
 			Image image = ss.Image;
-			// check body max cran against PTV_Total (Z_PTV1?)
-			//target.MeshGeometry.Positions.Max(p => p.Z)
+
 			Structure ptvTotal = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
 			Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type
+			//Bolus is unfortunately not a structure, can not check it the same way. However, if PTV is cropped, then it's likely the bolus is as well.
+			VVector doseOrigin = plan.Dose.Origin;
+			VVector imageOrigin = image.Origin;
 
+			double bodyLeft = body.MeshGeometry.Positions.Max(p => p.X);
+			double bodyRight = body.MeshGeometry.Positions.Min(p => p.X);
+			double bodyDors = body.MeshGeometry.Positions.Max(p => p.Y);
+			double bodyVent = body.MeshGeometry.Positions.Min(p => p.Y);
+			double bodyCran = body.MeshGeometry.Positions.Max(p => p.Z);
+			double bodyCaud = body.MeshGeometry.Positions.Min(p => p.Z);
 
-			double bodyMaxX = body.MeshGeometry.Positions.Max(p => p.X);
-			double bodyMinX = body.MeshGeometry.Positions.Min(p => p.X);
-			double bodyMaxY = body.MeshGeometry.Positions.Max(p => p.Y);
-			double bodyMinY = body.MeshGeometry.Positions.Min(p => p.Y);
-			double bodyMaxZ = body.MeshGeometry.Positions.Max(p => p.Z);
-			double bodyMinZ = body.MeshGeometry.Positions.Min(p => p.Z);
-			double ptvTotalMaxX = ptvTotal.MeshGeometry.Positions.Max(p => p.X);
-			double ptvTotalMinX = ptvTotal.MeshGeometry.Positions.Min(p => p.X);
-			double ptvTotalMaxY = ptvTotal.MeshGeometry.Positions.Max(p => p.Y);
-			double ptvTotalMinY = ptvTotal.MeshGeometry.Positions.Min(p => p.Y);
-			double ptvTotalMaxZ = ptvTotal.MeshGeometry.Positions.Max(p => p.Z);
-			double ptvTotalMinZ = ptvTotal.MeshGeometry.Positions.Min(p => p.Z);
+			double ptvLeft = ptvTotal.MeshGeometry.Positions.Max(p => p.X);
+			double ptvRight = ptvTotal.MeshGeometry.Positions.Min(p => p.X);
+			double ptvDors = ptvTotal.MeshGeometry.Positions.Max(p => p.Y);
+			double ptvVent = ptvTotal.MeshGeometry.Positions.Min(p => p.Y);
+			double ptvCran = ptvTotal.MeshGeometry.Positions.Max(p => p.Z);
+			double ptvCaud = ptvTotal.MeshGeometry.Positions.Min(p => p.Z);
+
+			// dose matrix coordinate system is dependent on plan treatment orientation
+			double doseCran;
+			double doseCaud;
+			double doseLeft;
+			double doseRight;
+
+			if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
+            {
+				doseCran = doseOrigin.z + plan.Dose.ZSize * plan.Dose.ZRes;
+				doseCaud = doseOrigin.z;
+				doseLeft = doseOrigin.x + plan.Dose.XSize * plan.Dose.XRes;
+				doseRight = doseOrigin.x;
+            }
+            else
+            {
+				doseCran = doseOrigin.z;
+				doseCaud = doseOrigin.z - plan.Dose.ZSize * plan.Dose.ZRes;
+				doseLeft = doseOrigin.x;
+				doseRight = doseOrigin.x - plan.Dose.XSize * plan.Dose.XRes;
+			}
+
+			double doseDors = doseOrigin.y + plan.Dose.YSize * plan.Dose.YRes;
+			double doseVent = doseOrigin.y;
+
 
 			string message = string.Empty;
 
 
-			message += " Distance from BODY to PTV_Total in direction: \n";
+			double imz = image.XSize * image.XRes;
+
+
+			message += " Image size X: " + imz.ToString("0.0") + "mm\n";
+
+			message += " Distance from BODY to PTV_Total (maximum position in each direction): \n";
 
             if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
             {
-				message += "Cran:\t" + (ptvTotalMaxZ - bodyMaxZ).ToString("0") + " mm.\n";
+				message += "Cran:\t" + (ptvCran - bodyCran).ToString("0") + " mm.\n";
             }
             else
             {
-				message += "Caud:\t" + (ptvTotalMinZ - bodyMinZ).ToString("0") + " mm.\n";
+				message += "Caud:\t" + (-(ptvCaud - bodyCaud)).ToString("0") + " mm.\n";
 			}
 
 
 
 			
-			message += "Lat:\t" + (ptvTotalMaxX - bodyMaxX).ToString("0") + " mm.\n";
-			message += "Lat:\t" + (ptvTotalMinX - bodyMinX).ToString("0") + " mm.\n";
-			message += "Vrt:\t" + (ptvTotalMaxY - bodyMaxY).ToString("0") + " mm.\n";
-			message += "Vrt:\t" + (ptvTotalMinY - bodyMinY).ToString("0") + " mm.\n";
+			message += "Left:\t" + (ptvLeft - bodyLeft).ToString("0") + " mm.\n";
+			message += "Right:\t" + (-(ptvRight - bodyRight)).ToString("0") + " mm.\n";
+			message += "Dors:\t" + (ptvDors - bodyDors).ToString("0") + " mm.\n";
+			message += "Vent:\t" + (-(ptvVent - bodyVent)).ToString("0") + " mm.\n";
+
+			message += "\nDose matrix margin from PTV is:\n";
+
+			message += "Cran:\t" + (doseCran - ptvCran).ToString("0") + " mm.\n";
+			message += "Caud:\t" + (-(doseCaud - ptvCaud)).ToString("0") + " mm.\n";
+			message += "Left:\t" + (doseLeft - ptvLeft).ToString("0") + " mm.\n";
+			message += "Right:\t" + (-(doseRight - ptvRight)).ToString("0") + " mm.\n";
+			message += "Dose:\t" + (doseDors - ptvDors).ToString("0") + " mm.\n";
+			message += "Vent:\t" + (-(doseVent - ptvVent)).ToString("0") + " mm.\n";
 
 
 			MessageBox.Show(message);
 
-
-
-
-
-
 		}
 
-
-
-
-
-
-
-
-
-		/*FFS
-* iso1: origo + delta från HFS
-* lastiso: ZposCoverAllAngles 
-* maxdelta bestäms av min SSD och fieldsize, bör vara hela cm
-* nrIsos = Round.ceiling(lastiso.z - iso.z)/maxdelta
-* Actual delta: Round.Ceiling(lastiso.z - iso.z)/nrIsos
-* 
-* 
-* 
-* 
-* 
-*/
 
 		// prereq: user origo placed in iso 5 from HFS-plan
 		// can use coordinates from Base dose HFS, as the isocenters may not have been placed according to suggestion... 
@@ -1027,7 +1044,7 @@ namespace VMS.TPS
 
 			Structure ptvTotal = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
 
-			// origo should be placed at the last isocenter in HFS plan 
+			// origo should be placed at the last isocenter in HFS plan (P5)
 			VVector lastIsoHFS = ss.Image.UserOrigin;
 
 			// Determine position of first iso FFS separately due to smaller field size for HFS means junction in different place
@@ -1051,19 +1068,10 @@ namespace VMS.TPS
 				// break if condition is satisfied or if minimum acceptable delta is reached whether the condition is met or not
 				if (delta < 2 * fieldSizeHFS * (Machine.SID - (maxDistance)) / Machine.SID || delta == 180)
 				{
-					debug += delta.ToString("0.0") + "\n";
 					break;
 				}
 
 			}
-
-
-
-
-			VVector debug1 = image.DicomToUser(lastIsoHFS, plan);
-			VVector debug2 = image.DicomToUser(firstIsoFFS, plan);
-
-			MessageBox.Show(debug + "first iso HFS and FFS : " + debug1.z.ToString("0.0") + "\t" + debug2.z.ToString("0.0"));
 
 
 
@@ -1075,20 +1083,9 @@ namespace VMS.TPS
 			// start value for number of isos, i.e. minimum number of isocenters using maximum delta
 			int minNrOfIsos = (int)Math.Ceiling(Math.Abs(firstIsoFFS.z - lastIsoFFS.z) / maximumDelta);
 
-			
-
-
-
-
-
-
-
-
-
-
 
 			// Iteration; start with maximum delta, calculate nr of isos necessary, check if overlap occurs in the 
-			//junction regions for all angles, if not increase nr of isos and check again until minimmum acceptable delta reached. 
+			//junction regions for all angles, if not; increase nr of isos and check again until minimmum acceptable delta reached. 
 			for (int nriso = minNrOfIsos; nriso < 8; nriso++)
 			{
 				isos.Add(firstIsoFFS);
@@ -1097,8 +1094,6 @@ namespace VMS.TPS
 
 				// change delta to even cm based on number of isos
 				int delta = (int)Math.Ceiling((Math.Abs(firstIsoFFS.z - lastIsoFFS.z) / nriso) / 10) * 10;
-
-
 
 				for (int i = 1; i < nriso +1; i++)
 				{
@@ -1138,14 +1133,6 @@ namespace VMS.TPS
 				}
 			}
 
-
-
-			//// only adjust lat if delta < 19 cm and body 
-			//if (Math.Abs(isos[0].x - bodyGeoCenter.x) > 10)
-			//         {
-			//	lat = bodyGeoCenter.x;
-			//	//isos[0].x = bodyGeoCenter.x;
-			//}
 
 			return isos;
 
@@ -1684,33 +1671,6 @@ namespace VMS.TPS
 		#endregion Electron Plan Checks
 
 
-		private string CheckCtvPtvPlanNumbering(PlanSetup plan, PlanCat planCat)
-		{
-			string cResults = string.Empty;
-			StructureSet ss = plan.StructureSet;
-			int number;
-
-			// check that CTV, PTV and Plan numbering is consistent, only nesessary if more than one PTV
-			// PTV from plans target volume, ctv from PTV number and check that mass center is within respective PTV boundaries
-			// Plan numbering not necessarily consistent with PTV if multiple structure sets used in same course 
-			if (!string.IsNullOrEmpty(plan.TargetVolumeID) && planCat == PlanCat.SBRT)
-			{
-				// Search for structure in structure set with same id as target volume and checks if type is PTV, defaults to null if criteria not met
-				Structure ptv = ss.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV").SingleOrDefault();
-				// Check if more than one PTV exists
-				int nrOfPTV = ss.Structures.Where(s => s.Id.Length > 4).Where(s => s.Id.Substring(0, 3) == "PTV").Where(s => s.DicomType == "PTV").Count();
-				if (ptv != null && Int32.TryParse(ptv.Id.Substring(3, 1), out number) && nrOfPTV > 1)
-				{
-					//Structure ctv = ss.Structures.Where(s => s.Id.Substring(0, 4) == ("CTV" + ptv.Id.Substring(3, 1))).Where(s => s.DicomType == "CTV").SingleOrDefault();
-					if (plan.Id.Substring(1, 1) != ptv.Id.Substring(3, 1))
-					{
-						cResults += "* Plan ID number not consistent with PTV ID number, check if this is ok";
-					}
-					//cResults = "Plan,PTV and CTV \t" + plan.Id + "\t" + ptv.Id + "\t" + ctv.Id + "\t" + nrOfPTV + "\n";
-				}
-			}
-			return cResults + "\n";
-		}
 
 		#region delta shift
 
@@ -1756,7 +1716,7 @@ namespace VMS.TPS
 
 		#endregion
 
-		#region Bolus // TODO: thickness in ID probably deprecated in 16.x...
+		#region Bolus // thickness in ID still used in 16.1
 
 
 		// ********* Kontroll av bolus, om kopplat till alla fält, förväntat HU-värde och namngivning  *********
@@ -1883,7 +1843,7 @@ namespace VMS.TPS
 			}
 
 
-
+			CheckStructNameAndType(plan);
 
 
 
@@ -1969,101 +1929,96 @@ namespace VMS.TPS
 					}
                     catch (Exception e)
                     {
-
 						cResults += ptv.Id + " gave following error: \t" + e;
-
 					}
 
 				}
 			}
 
-/*
-            PatternGradient maskPlattaLat = new PatternGradient
-            {
-                DistanceInMm = new List<double>() { 0, 2, 75, 2, 99, 2, 75, 2 },        // distance between gradients
-                GradientHUPerMm = new List<int>() { 80, -80, 80, -80, 80, -80, 80, -80 },      // 
-                PositionToleranceMm = new List<int>() { 0, 4, 4, 4, 4, 4, 4, 4 },        // tolerance for the gradient position
-                GradIndexForCoord = 4
-            };
-*/
-			PatternGradient maskPlattaLat = new PatternGradient
-			{
-				DistanceInMm = new List<double>() { 0, 256 },        // distance between gradients
-				GradientHUPerMm = new List<int>() { 80, -80 },      // 
-				PositionToleranceMm = new List<int>() { 0, 4 },        // tolerance for the gradient position
-				GradIndexForCoord = 1
-			};
-
-			//PatternGradient.GetGradientCoordinates
-			Image image = ss.Image;
-			var couchStructure = ss.Structures.Where(s => !s.Id.Contains("CouchInterior")).FirstOrDefault();
-			var couchVrtMin = couchStructure.CenterPoint.x;
-			double couchHeight = couchStructure.MeshGeometry.Bounds.X;
-			double couchThick = couchStructure.MeshGeometry.Bounds.SizeX;
-
-			double imageSizeX = image.XRes * image.XSize;
-			double imageSizeY = image.YRes * image.YSize;
-			double xLeftUpperCorner = image.Origin.x - image.XRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
-			double yLeftUpperCorner = image.Origin.y - image.YRes / 2;  // Dicomcoord in upper left corner ( NOT middle of voxel in upper left corner)
-
-			/*VVector bottomProfileStart = im;                      // only to get the z-coord of the user origo, x and y coord will be reassigned
-			bottomProfileStart.x = xLeftUpperCorner + imageSizeX / 2;           // center of the image in x-direction
-			bottomProfileStart.y = yLeftUpperCorner + imageSizeY - image.YRes;  // start 1 pixel in from bottom...
-			double steps = image.YRes;                        //  (mm/voxel) to make the steps 1 pixel wide, can skip this if 1 mm steps is wanted
-			*/
-
-			VVector userOrigin = ss.Image.UserOrigin;
-			VVector startPoint = userOrigin; 
-			startPoint.y = yLeftUpperCorner + imageSizeY - image.YRes;  // start 1 pixel in from bottom...
-			var couchTop = couchStructure.GetSegmentProfile(startPoint, userOrigin, new BitArray(100)).Where(x => x.Value == true).Last(); // profile point
-			//string searchForStructure = "struct3"; // there can be only one with the unique ID, Eclipse is also case sensitive
-
-			//Structure couchMarker = ss.Structures.Where(s => s.Id == searchForStructure).SingleOrDefault();
-
-			//cResults += " user origo: = " + userOrigin.x.ToString("0.0") + ", couch top = " + couchTop.Position.y  + " marker " + couchMarker.MeshGeometry.Bounds.Y.ToString("0.0");
-
-			// Couch structure doesn't seem to follow the rules that apply for other structures concerning bounds etc...
-
-			double vrtPos = 0;//PatternGradient.GetGradientCoordinates
-			
-			VVector scanStart = startPoint;
-			VVector scanEnd = startPoint;
-			scanStart.x -= 150;
-			scanEnd.x -= 150;
-			List<double> valHU = new List<double>();
-			List<double> coord = new List<double>();
-
-			int scanDistance = (int)(Math.Abs(userOrigin.y - startPoint.y));
-
-			for (int i = 0; i < scanDistance; i++)
-			{
-				var prof = image.GetImageProfile(scanStart, scanEnd, new double[300]);
-				valHU.Clear();
-				coord.Clear();
-				for (int j = 0; j < 300; j++)
-				{
-					valHU.Add(prof[j].Value);
-					coord.Add(prof[j].Position.x);
-				}
-				double gradient = PatternGradient.GetGradientCoordinates(coord, valHU, maskPlattaLat.GradientHUPerMm, maskPlattaLat.DistanceInMm, maskPlattaLat.PositionToleranceMm, maskPlattaLat.GradIndexForCoord);
-				if (gradient != 0.0)
-				{
-					vrtPos = scanStart.y;
-					cResults += "Maskplattepos sdfhgklsdfklsdgf";
-					break;
-				}
-				else
-				{
-					scanStart.y -= 1;
-					scanEnd.y -= 1;
-				}
-			}
-
-			cResults += "scandist :" + scanDistance + "\n";
-			cResults += "Maskplattepos vrt :" + vrtPos.ToString("0.0");
-
 			return cResults;
 		}
+
+
+
+		private void CheckStructNameAndType(PlanSetup plan)
+		{
+
+			// CTVN_45, CTVT_61.2, CTV1_45 CTVN1_L_52.6(fritext)  etc
+			Regex ctvNaming = new Regex(@"^(ctv)(?<type>[tnm]?)(?<number>[1-9]?)_(?<position>[lr])?_?(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?)(?:[\(](?<description>\w+)[\)])?", RegexOptions.IgnoreCase);
+			StructureSet ss = plan.StructureSet;
+			// structures included resp excluded in calculation (outside body and not bolus, empty)
+
+			//var blockApertureDiamCm = new Regex(@"(\d{1,2})\s?(cm)", RegexOptions.IgnoreCase);
+			//var blockApertureDiamMm = new Regex(@"(\d{1,3})\s?(mm)", RegexOptions.IgnoreCase);
+
+			//if (blockApertureDiamCm.IsMatch(blockID))
+			//{
+			//	Group g = blockApertureDiamCm.Match(blockID).Groups[1];
+
+
+
+
+
+
+
+
+
+				// sort order type; ptv, ctv, itv, gtv 
+			List<Structure> structures = new List<Structure>();
+			List<Structure> EmptyStr = new List<Structure>();
+
+			structures = ss.Structures.Where(s => s.HasSegment).OrderBy(s => s.Id).ToList();
+			EmptyStr = ss.Structures.Where(s => s.HasSegment == false).ToList();
+
+			//int nrOfPTV = ss.Structures.Where(s => s.Id.Length > 4).Where(s => s.Id.Substring(0, 3) == "PTV").Where(s => s.DicomType == "PTV").Count();
+			structures.OrderByDescending(s => s.Id.Substring(0, 3) == "PTV").ThenByDescending(s => s.Id.Substring(0, 3) == "CTV").ThenByDescending(s => s.Id.Substring(0, 3) == "GTV").ToList();
+
+			
+
+			string listOfStr = string.Empty;
+			foreach (var str in structures)
+            {
+				listOfStr += str.Id +  "\t" + str.DicomType + "\t" + str.StructureCode + "\n";
+			}
+
+			MessageBox.Show(listOfStr);
+		}
+
+		private bool StructureInPlan(Structure str)
+        {
+			return true;
+        }
+
+
+		//TODO: create method for getting coord 8 corners of max pos CVT  and check if the coord is included within respective 8 corners of PTV
+		private string SBRTCtvPtvPlanNumbering(PlanSetup plan, PlanCat planCat)
+		{
+			string cResults = string.Empty;
+			StructureSet ss = plan.StructureSet;
+			int number;
+
+			// check that CTV, PTV and Plan numbering is consistent, only necessary if more than one PTV
+			// PTV from plans target volume, ctv from PTV number and check that mass center is within respective PTV boundaries
+			// Plan numbering not necessarily consistent with PTV if multiple structure sets are used in the same course 
+			if (!string.IsNullOrEmpty(plan.TargetVolumeID) && planCat == PlanCat.SBRT)
+			{
+				// Search for structure in structure set with same id as target volume and checks if type is PTV, defaults to null if criteria not met
+				Structure ptv = ss.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV").SingleOrDefault();
+				// Check if more than one PTV exists
+				int nrOfPTV = ss.Structures.Where(s => s.Id.Length > 4).Where(s => s.Id.Substring(0, 3) == "PTV").Where(s => s.DicomType == "PTV").Count();
+				if (ptv != null && Int32.TryParse(ptv.Id.Substring(3, 1), out number) && nrOfPTV > 1)
+				{
+					//Structure ctv = ss.Structures.Where(s => s.Id.Substring(0, 4) == ("CTV" + ptv.Id.Substring(3, 1))).Where(s => s.DicomType == "CTV").SingleOrDefault();
+					if (plan.Id.Substring(1, 1) != ptv.Id.Substring(3, 1))
+					{
+						cResults += "* Plan ID number not consistent with PTV ID number, check if this is ok";
+					}
+					//cResults = "Plan,PTV and CTV \t" + plan.Id + "\t" + ptv.Id + "\t" + ctv.Id + "\t" + nrOfPTV + "\n";
+				}
+			}
+			return cResults + "\n";
+		}
+
 
 
 		private string CheckForAssignedHU(Structure structure)
@@ -2077,6 +2032,12 @@ namespace VMS.TPS
 			return cResults;
 		}
 
+		/// <summary>
+		/// Special check for SBRT structure set to, if necessary, remind the user to include fixation devices in the BODY structure,
+		/// e.g. vacuum bag, SBF etc. Also checks the slice thickness against guidelines.
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <returns></returns>
         private string CheckStructureSetSBRT(PlanSetup plan)
         {
 			StructureSet ss = plan.StructureSet;
@@ -2086,7 +2047,6 @@ namespace VMS.TPS
             if (image.ZRes >= 2.5)
             {
 				cResults += "* Image slice thickness is " + image.ZRes.ToString("0.0") + " mm. Check if this is ok for this SBRT case.\n";
-
 			}
 			Structure skin = ss.Structures.Where(s => s.Id == "Skin").SingleOrDefault();
 			if (skin == null || skin.IsEmpty)
@@ -2095,12 +2055,6 @@ namespace VMS.TPS
             }
             else
             {
-				// check that body is larger than Skin, at least in iso pos (z)
-				// Could use bounds but that assumes that skin is contured for whole body 
-				// Instead use profile
-				// startpoint; isocenter long and lat, vrt bottom of bounding box for total body
-				// TODO: If vacum bag, could be thin in bottom, better get a profile also in lateral direction
-
 				Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type
 				double bodyVrtMin = body.MeshGeometry.Bounds.Y + body.MeshGeometry.Bounds.SizeY;
 				int minDifferenceBodySkin = 3; // if difference larger than 3 mm assume that body includes fixation device
