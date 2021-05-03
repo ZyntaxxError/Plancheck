@@ -1432,6 +1432,8 @@ namespace VMS.TPS
 			return geomCenter;
 		}
 
+		
+
 
 
         /// <summary>
@@ -1954,28 +1956,13 @@ namespace VMS.TPS
 
 		private void CheckStructNameAndType(PlanSetup plan)
 		{
-
-			// CTVN_45, CTVT_61.2, CTV1_45 CTVN1_L_52.6(fritext)  etc
+			// From dose value and plan dose recommend isodose lines?
+			// CTVN_45, CTVT_61.2, CTV1_45 CTVN1_L_52.6(fritext)  etc, GTV seems a bit more free styling... GTVN(4D) etc
 			Regex ctvNaming = new Regex(@"^(ctv)(?<type>[tnm]?)(?<number>[1-9]?)_(?<position>[lr])?_?(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?)(?:[\(](?<description>\w+)[\)])?", RegexOptions.IgnoreCase);
+			Regex ptvNaming = new Regex(@"^(ptv)(?<type>[tnm]?)(?<number>[1-9]?)_(?<position>[lr])?_?(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?)(?:[\(](?<description>\w+)[\)])?", RegexOptions.IgnoreCase);
 			StructureSet ss = plan.StructureSet;
 			// structures included resp excluded in calculation (outside body and not bolus, empty)
-
-			//var blockApertureDiamCm = new Regex(@"(\d{1,2})\s?(cm)", RegexOptions.IgnoreCase);
-			//var blockApertureDiamMm = new Regex(@"(\d{1,3})\s?(mm)", RegexOptions.IgnoreCase);
-
-			//if (blockApertureDiamCm.IsMatch(blockID))
-			//{
-			//	Group g = blockApertureDiamCm.Match(blockID).Groups[1];
-
-
-
-
-
-
-
-
-
-				// sort order type; ptv, ctv, itv, gtv 
+			// sort order type; ptv, ctv, itv, gtv 
 			List<Structure> structures = new List<Structure>();
 			List<Structure> EmptyStr = new List<Structure>();
 
@@ -1985,15 +1972,103 @@ namespace VMS.TPS
 			//int nrOfPTV = ss.Structures.Where(s => s.Id.Length > 4).Where(s => s.Id.Substring(0, 3) == "PTV").Where(s => s.DicomType == "PTV").Count();
 			structures.OrderByDescending(s => s.Id.Substring(0, 3) == "PTV").ThenByDescending(s => s.Id.Substring(0, 3) == "CTV").ThenByDescending(s => s.Id.Substring(0, 3) == "GTV").ToList();
 
+			// check dicom types
+
+			List<Structure> ptvStruct = structures.Where(s => s.Id.Substring(0, 3).ToLower() == "ptv").ToList();
+			List<Structure> ctvStruct = structures.Where(s => s.Id.Substring(0, 3).ToLower() == "ctv").ToList();
+			List<Structure> itvStruct = structures.Where(s => s.Id.Substring(0, 3).ToLower() == "itv").ToList();
+			List<Structure> gtvStruct = structures.Where(s => s.Id.Substring(0, 3).ToLower() == "gtv").ToList();
+
+			string message = string.Empty;
+			// TODO: how to make this more DRY
+            foreach (var ptv in ptvStruct)
+            {
+                if (ptv.DicomType.Contains("PTV") == false)
+                {
+					message += ptv.Id + ": ändra till volymtyp PTV (är nu satt som " + ptv.DicomType + ")\n";
+				}
+				if (ptv.StructureCode.Code.Contains("PTV") == false)
+				{
+					message += ptv.Id + ": ändra till strukturkod PTV xxxx (är nu satt som " + ptv.StructureCode + ")\n";
+				}
+
+				double doseValue = 0.0;
+                if (ptvNaming.IsMatch(ptv.Id))
+                {
+                    string doseValueString = ptvNaming.Match(ptv.Id).Groups["dose"].Value;
+                    if (double.TryParse(doseValueString, out doseValue))
+                    {
+                        message += ptv.Id + " testing: dose value = " + doseValue.ToString("0.00") + "Gy.\n";
+                    }
+                }
+                else
+                {
+					message += ptv.Id + " verkar inte följa namngivningsregler för PTV.\n";
+				}
+            }
+
+			foreach (var ctv in ctvStruct)
+			{
+				if (ctv.DicomType.Contains("CTV") == false)
+				{
+					message += ctv.Id + ": ändra till volymtyp CTV (är nu satt som " + ctv.DicomType + ")\n";
+				}
+				if (ctv.StructureCode.Code.Contains("CTV") == false)
+				{
+					message += ctv.Id + ": ändra till strukturkod CTV xxxx (är nu satt som " + ctv.StructureCode + ")\n";
+				}
+				if (ctvNaming.IsMatch(ctv.Id)) 
+				{
+                }
+                else
+                {
+					message += ctv.Id + " verkar inte följa namngivningsregler för CTV.\n";
+				}
+			}
+
+			foreach (var itv in itvStruct)
+			{
+				if (itv.DicomType.Contains("ITV") == false)
+				{
+					message += itv.Id + ": ändra till volymtyp ITV (är nu satt som " + itv.DicomType + ")\n";
+				}
+				if (itv.StructureCode.Code.Contains("ITV") == false)
+				{
+					message += itv.Id + ": ändra till strukturkod ITV xxxx (är nu satt som " + itv.StructureCode + ")\n";
+				}
+			}
+
+			foreach (var gtv in gtvStruct)
+			{
+				if (gtv.DicomType.Contains("GTV") == false)
+				{
+					message += gtv.Id + ": ändra till volymtyp GTV (är nu satt som " + gtv.DicomType + ")\n";
+				}
+				if (gtv.StructureCode.Code.Contains("GTV") == false)
+				{
+					message += gtv.Id + ": ändra till strukturkod GTV xxxx (är nu satt som " + gtv.StructureCode + ")\n";
+				}
+			}
+
+			if (string.IsNullOrEmpty(message) == false)
+            {
+				MessageBox.Show(message);
+			}
 			
+
+
+			//DICOM types
+			//Possible values are "AVOIDANCE", "CAVITY", "CONTRAST_AGENT", "CTV", "EXTERNAL", "GTV", "IRRAD_VOLUME", 
+			//"ORGAN", "PTV", "TREATED_VOLUME", "SUPPORT", "FIXATION", "CONTROL", and "DOSE_REGION". 
+
 
 			string listOfStr = string.Empty;
 			foreach (var str in structures)
             {
-				listOfStr += str.Id +  "\t" + str.DicomType + "\t" + str.StructureCode + "\n";
+				listOfStr += str.Id + "\t";//						 + str.DicomType + "\t" + str.StructureCode + "\n";
 			}
 
-			MessageBox.Show(listOfStr);
+			//MessageBox.Show(listOfStr);
 		}
 
 		private bool StructureInPlan(Structure str)
@@ -2420,7 +2495,7 @@ namespace VMS.TPS
 
 
         // ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
-
+		// Om enbart CBCT-fält, beroende på plancat, kan ge hint om ext eller flytt från cbctmatchstruktur, plan target volume, iso 
         private string CheckSetupField(PlanSetup plan)
 		{
 			string cResults = "";
@@ -2597,7 +2672,7 @@ namespace VMS.TPS
 
 			if (planCat == PlanCat.TMI)
 			{
-				remarks += CheckForCouchValuesTMI(plan);
+				remarks += TMICheckForCouchValues(plan);
 			}
 
 
@@ -2614,7 +2689,7 @@ namespace VMS.TPS
 				
 
 
-				if (!beam.Technique.Id.Contains("SRS") && IsPlanSRT(plan))
+				if (planCat == PlanCat.SBRT && beam.Technique.Id.Contains("SRS") == false)
 				{
 					if (countSRSRemarks < 1) { remarks = remarks + "** Change technique to SRS-" + beam.Technique.Id + "! \n"; };
 					countSRSRemarks++;
@@ -2623,14 +2698,17 @@ namespace VMS.TPS
 				{
 					remarks += CheckDoseRateFFF(beam, ref countDoseRateFFFRemarks);
 				}
-				if (beam.MLCPlanType == MLCPlanType.ArcDynamic && IsPlanSRT(plan))
+				if (beam.MLCPlanType == MLCPlanType.ArcDynamic && planCat == PlanCat.SBRT)
 				{
 					remarks += CheckArcDynFFF(beam, ref countArcDynFFFRemarks);
 					remarks += CheckArcDynCollAngle(beam, ref countArcDynCollAngleRemarks);
 				}
-				if (beam.MLCPlanType == MLCPlanType.Static && IsPlanSRT(plan))
+				if (beam.MLCPlanType == MLCPlanType.Static)
 				{
-					remarks += CheckMLCStaticFFF(plan, beam, ref countMLCStaticFFFRemarks);
+                    if (planCat == PlanCat.SBRT)
+                    {
+						remarks += CheckMLCStaticFFF(plan, beam, ref countMLCStaticFFFRemarks);
+					}
 				}
 				// the absolute difference between CW and CCW should be less than two...
 				if (beam.GantryDirection == GantryDirection.CounterClockwise)
@@ -2646,10 +2724,10 @@ namespace VMS.TPS
 			{
 				remarks += "** Check the arc directions! \t";
 			}
-			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n\n" + "Estimated delivery time: > " + Math.Round(GetEstimatedTreatmentTime(plan)/60, 1).ToString("0.0") + "min\n" + remarks;
+			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n\n" + "Estimated delivery time: > " + Math.Round(GetEstimatedTreatmentTime(plan)/60, 1).ToString("0.0") + " min\n" + remarks;
 		}
 
-        private string CheckForCouchValuesTMI(PlanSetup plan)
+        private string TMICheckForCouchValues(PlanSetup plan)
         {
 			string cResults = string.Empty;
 			string beamIdWithCouchValues = string.Empty;
