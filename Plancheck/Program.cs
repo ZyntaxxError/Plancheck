@@ -281,19 +281,31 @@ namespace VMS.TPS
 	}
 
 
-		public static class BeamExtraInfo  // TODO: check if this class is better as static methods only, extension class to beam? naming?
+		public static class BeamExtensions  
 	{
-		/*
-		public BeamExtraInfo(Beam beam)
-		{
-			Id = beam.Id;
-			EBOT = GetEstimatedBeamOnTime(beam);
-		}
 
-		public string Id { get; private set; }
-		public double EBOT { get; private set; }
 
-		*/
+		public static bool IsMaxDoseRateUsed(this Beam beam)
+        {
+			//if (beam.EnergyModeDisplayName)
+			//{
+
+			//}
+			// TODO: check the possible EnergyModeDisplayName:s, match them to key in doserates
+
+
+			//if ((beam.DoseRate < 1400 && beam.EnergyModeDisplayName.Contains("6")) || (beam.DoseRate < 2400 && beam.EnergyModeDisplayName.Contains("10")))
+			//{
+			//	if (countDoseRateFFFRemarks < 1)
+			//	{
+			//		cResults = "* Consider changing dose rate to maximum!\n";
+			//		countDoseRateFFFRemarks++;
+			//	}
+			//}
+
+			return true;
+        }
+
 
 		/// <summary>
 		/// Calculates an estimated beam on time from control points in beam, works for dynamic as well as static fields. TODO: EDW unhandled, underestimates 
@@ -301,7 +313,7 @@ namespace VMS.TPS
 		/// </summary>
 		/// <param name="beam"></param>
 		/// <returns></returns>
-		public static double GetEstimatedBeamOnTime(Beam beam)
+		public static int EstimatedBeamOnTime(this Beam beam)
 		{
 			double timeOffset = 0.9; // s, added time for startup beam stabilisation 0.4 s, empirical estimation from trajectory logs. Stopping time last control point aproximated to 0.5 s
 			double time = 0;
@@ -403,7 +415,7 @@ namespace VMS.TPS
 
 			//MessageBox.Show(cpInfo);
 
-			return time + timeOffset;
+			return (int)(time + timeOffset);
 		}
 
 
@@ -414,7 +426,7 @@ namespace VMS.TPS
 		/// <param name="v0"></param>
 		/// <param name="axis"></param>
 		/// <returns></returns>
-		public static double GetMinTravelTime(double s, double v0, Machine.Axis axis)
+		private static double GetMinTravelTime(double s, double v0, Machine.Axis axis)
 		{
 			double vMax = 1, a = 1, t;
 			switch (axis)
@@ -2596,8 +2608,9 @@ namespace VMS.TPS
 				//BeamExtraInfo beamExtras = new BeamExtraInfo(beam);
 
 				cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\t";
-				cResults += Math.Round(BeamExtraInfo.GetEstimatedBeamOnTime(beam)).ToString("0") + " s\t" + (beam.ControlPoints.Count()) +"\n";
-				beamOnTimeInSec += BeamExtraInfo.GetEstimatedBeamOnTime(beam);
+				//cResults += Math.Round(BeamExtensions.EstimatedBeamOnTime(beam)).ToString("0") + " s\t" + (beam.ControlPoints.Count()) +"\n";
+				cResults += beam.EstimatedBeamOnTime().ToString("0.0") + " s\n";
+				beamOnTimeInSec += BeamExtensions.EstimatedBeamOnTime(beam);
 				
 
 
@@ -2680,7 +2693,7 @@ namespace VMS.TPS
 				cpFirst.Add(beam.ControlPoints.First());
 				cpLast.Add(beam.ControlPoints.Last());
 				beamsInOrder.Add(beam);
-				treatTime += BeamExtraInfo.GetEstimatedBeamOnTime(beam);
+				treatTime += BeamExtensions.EstimatedBeamOnTime(beam);
             }
 
 			// control sequens and energy change happens parallel with, and independent to, mechanical movements
