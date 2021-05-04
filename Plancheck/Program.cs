@@ -270,40 +270,121 @@ namespace VMS.TPS
 		}
 
 
-
-		public static readonly Dictionary<string, int> DoseRates = new Dictionary<string, int>
-			{
-				{ "6X", 600 },
-				{ "15X", 600 },
-				{ "6XFFF", 1400 },
-				{ "10XFFF", 2400 }
+    public static readonly Dictionary<string, int> DoseRates = new Dictionary<string, int>
+            {
+                { "6X", 600 },
+                { "15X", 600 },
+                { "6X-FFF", 1400 },
+                { "10X-FFF", 2400 },
+				{ "6E", 1000 },
+				{ "9E", 1000 },
+				{ "12E", 1000 }
 			};
-	}
+}
+	public static class PlanExtensions
+    {
 
+		public static bool AutomationPrerequisites(this PlanSetup plan)
+		{
+			//TODO: Missing check for same accessories for all beams
+			if (plan.SingleIso() && plan.SingleCouchPosition() && plan.SingleEnergy())
+			{
+				return true;
+			}
+			else
+			{
+				return false;
+			}
+		}
+
+		public static bool SingleIso(this PlanSetup plan)
+		{
+			bool sIso = true;
+			Beam firstBeam = plan.Beams.First();
+			foreach (var beam in plan.Beams)
+			{
+				if (beam.IsocenterPosition.x != firstBeam.IsocenterPosition.x || beam.IsocenterPosition.y != firstBeam.IsocenterPosition.y || beam.IsocenterPosition.z != firstBeam.IsocenterPosition.z)
+				{
+					sIso = false;
+					break;
+				}
+			}
+			return sIso;
+		}
+
+		public static bool SingleEnergy(this PlanSetup plan)
+		{
+			bool sEnergy = true;
+			Beam firstBeam = plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id).First();
+			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
+			{
+				if (!beam.EnergyModeDisplayName.Equals(firstBeam.EnergyModeDisplayName))
+				{
+					sEnergy = false;
+					break;
+				}
+			}
+			return sEnergy;
+		}
+
+		public static bool SingleCouchPosition(this PlanSetup plan)
+		{
+			bool sCouch = true;
+			Beam firstBeam = plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id).First();
+			if (firstBeam.ControlPoints.First().PatientSupportAngle >= 345 || firstBeam.ControlPoints.First().PatientSupportAngle <= 15)
+			{
+				foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
+				{
+					if (beam.ControlPoints.First().PatientSupportAngle != firstBeam.ControlPoints.First().PatientSupportAngle)
+					{
+						sCouch = false;
+						break;
+					}
+
+				}
+			}
+			else
+			{
+				sCouch = false;
+			}
+			return sCouch;
+		}
+
+
+		public static bool AnyWedges(this PlanSetup plan)
+		{
+			bool anyWedgesInPlan = false;
+			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField))
+			{
+				if (beam.Wedges.Any())
+				{
+					anyWedgesInPlan = true;
+				}
+			}
+			return anyWedgesInPlan;
+		}
+	}
 
 		public static class BeamExtensions  
 	{
 
-
-		public static bool IsMaxDoseRateUsed(this Beam beam)
+		public static bool MaxDoseRateUsed(this Beam beam)
         {
-			//if (beam.EnergyModeDisplayName)
-			//{
+			int maxDoseRate = 0;
+			if (!Machine.DoseRates.TryGetValue(beam.EnergyModeDisplayName, out maxDoseRate))
+			{
+				MessageBox.Show(beam.EnergyModeDisplayName + " is not recognised as an active energy mode!");
+				return true; // Ugly code to prevent it from crashing, fix this
+			}
 
-			//}
-			// TODO: check the possible EnergyModeDisplayName:s, match them to key in doserates
-
-
-			//if ((beam.DoseRate < 1400 && beam.EnergyModeDisplayName.Contains("6")) || (beam.DoseRate < 2400 && beam.EnergyModeDisplayName.Contains("10")))
-			//{
-			//	if (countDoseRateFFFRemarks < 1)
-			//	{
-			//		cResults = "* Consider changing dose rate to maximum!\n";
-			//		countDoseRateFFFRemarks++;
-			//	}
-			//}
-
-			return true;
+            if (beam.DoseRate == maxDoseRate)
+            {
+				return true;
+            }
+            else
+            {
+				return false;
+            }
         }
 
 
@@ -516,10 +597,6 @@ namespace VMS.TPS
 			TMI
 		}
 
-
-
-
-
 		public void Execute(ScriptContext context)
 		{
 			if ((context.PlanSum == null && context.PlanSetup == null) || context.StructureSet == null)
@@ -539,9 +616,6 @@ namespace VMS.TPS
 			}
 			else
 			{
-
-                    
-
 				if (context.PlanSum != null)
                     {
 					PlanSum psum = context.PlanSum;
@@ -570,11 +644,6 @@ namespace VMS.TPS
 					CheckFieldNamingConvention(course, plan);
 
 
-
-
-
-
-
                     if (planCat == PlanCat.Electron)
                     {
 						message += CheckElectronPlan(plan);
@@ -597,7 +666,7 @@ namespace VMS.TPS
                                 if (plan.Id.Contains("OPT"))
                                 {
 									message += CheckBodyCenter(plan);
-									message += GetMaxSSDJunctions(plan);
+									message += TMIGetMaxSSDJunctions(plan);
 								}
 								break;
                             default:
@@ -643,18 +712,7 @@ namespace VMS.TPS
 		//	Structure structure = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();
 		//     margin = 10;
 		// }
-		/*FFS
- * iso1: origo + delta från HFS
- * lastiso: ZposCoverAllAngles - fieldsize/2 
- * maxdelta bestäms av min SSD och fieldsize, bör vara hela cm
- * nrIsos = Round.ceiling(lastiso.z - iso.z)/maxdelta
- * Actual delta: Round.Ceiling(lastiso.z - iso.z)/nrIsos
- * 
- * 
- * 
- * 
- * 
- */
+
 
 		/// <summary>
 		/// Gets the maximum SSD for each junction in a TBI/TMI plan
@@ -662,7 +720,7 @@ namespace VMS.TPS
 		/// </summary>
 		/// <param name="plan"></param>
 		/// <returns></returns>
-		private string GetMaxSSDJunctions(PlanSetup plan)
+		private string TMIGetMaxSSDJunctions(PlanSetup plan)
 		{
 			// need to check if all isocenters are positioned in the same lat and vrt value
 			StructureSet ss = plan.StructureSet;
@@ -1150,59 +1208,6 @@ namespace VMS.TPS
 
 		}
 
-
-
-
-		// this should be in separate class, e.g. conversion
-		public enum EvenUnit
-        {
-			mm_up,
-			mm_down,
-			cm_up,
-			cm_down
-        }
-
-
-		//  This will probably not work... depends on plan, should only depend on image and then EvenUnit should be renamed to mm_cran etc
-		//  i.e. need to create own function for DicomToUser...
-		/// <summary>
-		/// Round dicom position so that it is represented by whole mm or cm in Eclipse in respect to user origin
-		/// </summary>
-		/// <param name="dicomPos"></param>
-		/// <param name="image"></param>
-		/// <param name="unit"></param>
-		/// <returns>rounded position in eclipse in dicom coordinates</returns>
-		public VVector RoundedPositionEclipse(VVector dicomPos, PlanSetup plan, EvenUnit unit)
-        {
-			Image image = plan.StructureSet.Image;
-			VVector eclipseRound = image.DicomToUser(dicomPos, plan);
-			
-            switch (unit)
-            {
-                case EvenUnit.mm_up:
-					eclipseRound.x = Math.Ceiling(eclipseRound.x);
-					eclipseRound.y = Math.Ceiling(eclipseRound.y);
-					eclipseRound.z = Math.Ceiling(eclipseRound.z);
-					break;
-                case EvenUnit.mm_down:
-					eclipseRound.x = Math.Floor(eclipseRound.x);
-					eclipseRound.y = Math.Floor(eclipseRound.y);
-					eclipseRound.z = Math.Floor(eclipseRound.z);
-					break;
-                case EvenUnit.cm_up:
-					eclipseRound.x = Math.Ceiling(eclipseRound.x * 10) / 10;
-					eclipseRound.y = Math.Ceiling(eclipseRound.y * 10) / 10;
-					eclipseRound.z = Math.Ceiling(eclipseRound.z * 10) / 10;
-					break;
-                case EvenUnit.cm_down:
-					eclipseRound.x = Math.Floor(eclipseRound.x * 10) / 10;
-					eclipseRound.y = Math.Floor(eclipseRound.y * 10) / 10;
-					eclipseRound.z = Math.Floor(eclipseRound.z * 10) / 10;
-					break;
-            }
-
-			return image.UserToDicom(eclipseRound, plan);
-		}
 
 
         /// <summary>
@@ -2348,7 +2353,6 @@ namespace VMS.TPS
 				planIdSecondChar = ps.Id[1];
 				if (char.ToUpperInvariant(planIdFirstChar) == 'P' && int.TryParse(planIdSecondChar.ToString(), out usedNumber))
 				{
-
 					if (ps.ApprovalStatus == PlanSetupApprovalStatus.PlanningApproved || ps.ApprovalStatus == PlanSetupApprovalStatus.TreatmentApproved ||
 					ps.ApprovalStatus == PlanSetupApprovalStatus.Completed || ps.ApprovalStatus == PlanSetupApprovalStatus.CompletedEarly)
                     {
@@ -2360,7 +2364,6 @@ namespace VMS.TPS
 				}
 			}
 		}
-
 
 
 
@@ -2684,7 +2687,7 @@ namespace VMS.TPS
 
 				cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\t";
 				//cResults += Math.Round(BeamExtensions.EstimatedBeamOnTime(beam)).ToString("0") + " s\t" + (beam.ControlPoints.Count()) +"\n";
-				cResults += beam.EstimatedBeamOnTime().ToString("0.0") + " s\n";
+				cResults += beam.EstimatedBeamOnTime() + " s\n";
 				beamOnTimeInSec += BeamExtensions.EstimatedBeamOnTime(beam);
 				
 
@@ -2799,7 +2802,7 @@ namespace VMS.TPS
 
 				mechMovementTime.Clear();
 
-				if (AutomationPrerequisites(plan) == false)
+				if (plan.AutomationPrerequisites() == false)
 				{
 					treatTime += manualBeamOnTime;
 				}
@@ -2845,87 +2848,17 @@ namespace VMS.TPS
 		}
 
 
-
-
-		private bool AutomationPrerequisites(PlanSetup plan) 
-		{
-			//TODO: Missing check for same accessories for all beams
-            if (SingleIsoInPlan(plan) && SingleCouchPosInPlan(plan) && SingleEnergyInPlan(plan))
-            {
-				return true;
-            }
-            else
-            {
-				return false;
-            }
-		}
-
-
-		private bool SingleIsoInPlan(PlanSetup plan)
-        {
-			bool sIso = true;
-			Beam firstBeam = plan.Beams.First();
-			foreach (var beam in plan.Beams)
-			{
-				if (beam.IsocenterPosition.x != firstBeam.IsocenterPosition.x || beam.IsocenterPosition.y != firstBeam.IsocenterPosition.y || beam.IsocenterPosition.z != firstBeam.IsocenterPosition.z)
-				{
-					sIso = false;
-					break;
-				}
-			}
-			return sIso;
-		}
-
-		private bool SingleEnergyInPlan(PlanSetup plan)
-		{
-			bool sEnergy = true;
-			Beam firstBeam = plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id).First();
-			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
-			{
-				if (!beam.EnergyModeDisplayName.Equals(firstBeam.EnergyModeDisplayName))
-				{
-					sEnergy = false;
-					break;
-				}
-			}
-			return sEnergy;
-		}
-
-		private bool SingleCouchPosInPlan(PlanSetup plan)
-		{
-			bool sCouch = true;
-			Beam firstBeam = plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id).First();
-            if (firstBeam.ControlPoints.First().PatientSupportAngle >= 345 || firstBeam.ControlPoints.First().PatientSupportAngle <= 15)
-            {
-				foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
-				{
-					if (beam.ControlPoints.First().PatientSupportAngle != firstBeam.ControlPoints.First().PatientSupportAngle)
-					{
-						sCouch = false;
-						break;
-					}
-
-				}
-            }
-            else
-            {
-				sCouch = false;
-			}
-			return sCouch;
-		}
-
-
 		// ********* 	Kontroll av dosrat vid FFF	*********
 
 		public string CheckDoseRateFFF(Beam beam, ref int countDoseRateFFFRemarks)
 		{
 			string cResults = "";
 
-			if ((beam.DoseRate < 1400 && beam.EnergyModeDisplayName.Contains("6")) || (beam.DoseRate < 2400 && beam.EnergyModeDisplayName.Contains("10")))
+			if (beam.MaxDoseRateUsed() == false)
 			{
 				if (countDoseRateFFFRemarks < 1)
 				{
-					cResults = "* Consider changing dose rate to maximum!\n";
+					cResults = "* Consider changing dose rate to maximum.\n";
 					countDoseRateFFFRemarks++;
 				}
 			}
@@ -2951,7 +2884,7 @@ namespace VMS.TPS
 		{
 			string cResults = "";
 			// only if no wedges in plan
-			if (countMLCStaticFFFRemarks < 1 && !beam.EnergyModeDisplayName.Contains("FFF") && !AnyWedgesInPlan(plan))
+			if (countMLCStaticFFFRemarks < 1 && !beam.EnergyModeDisplayName.Contains("FFF") && plan.AnyWedges() == false)
 			{
 				cResults = "* Consider changing energy to FFF \n";
 				countMLCStaticFFFRemarks++;
@@ -2959,18 +2892,6 @@ namespace VMS.TPS
 			return cResults;
 		}
 
-		public bool AnyWedgesInPlan(PlanSetup plan)
-		{
-			bool anyWedgesInPlan = false;
-			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField))
-			{
-				if (beam.Wedges.Any())
-				{
-					anyWedgesInPlan = true;
-				}
-			}
-			return anyWedgesInPlan;
-		}
 
 
 		// ********* 	Kontroll av kollimatorvinkel vid Dynamic Arc	*********
