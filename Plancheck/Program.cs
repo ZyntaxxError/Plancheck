@@ -14,11 +14,12 @@ using VMS.TPS.Common.Model.API;
 using VMS.TPS.Common.Model.Types;
 using System.Collections;
 using System.Text;
+using System.Diagnostics;
 
 
 
 /* TODO: 
- * TODO: 
+ * TODO: Clean up extensions, some methods are not actual extensions
  * TODO Plan sum; foreach plan: check, easier to do in build and wpf...
  * TODO: For dynamic plans; check if verification plan exists only if plan status is planning approved 
  * TODO: z-value for imaging, recommend extended CBCT
@@ -572,6 +573,179 @@ namespace VMS.TPS
 		}
 	}
 
+	public static class StructureExtensions
+    {
+		/// <summary>
+		/// Calculates geometric center of structure bounds in Dicom coordinates
+		/// TODO: Check if this is dependent on patient orientation, probably not, but check it anyway
+		/// </summary>
+		/// <param name="structure"></param>
+		/// <returns></returns>
+		public static VVector GeometricCenter(this Structure structure)
+		{
+			VVector geomCenter = new VVector
+			{
+				x = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX / 2,
+				y = structure.MeshGeometry.Bounds.Y + structure.MeshGeometry.Bounds.SizeY / 2,
+				z = structure.MeshGeometry.Bounds.Z + structure.MeshGeometry.Bounds.SizeZ / 2
+			};
+			return geomCenter;
+		}
+
+
+
+
+		/// <summary>
+		/// Maximum distance [mm] in x-y-plane from given Dicom coordinate to exitpoint of structure
+		/// TODO: investigate if this could be used instead: VVector[][] contour = structure.GetContoursOnImagePlane(slize_z)
+		/// </summary>
+		/// <param name="structure"></param>
+		/// <param name="isoPos"></param>
+		/// <returns>double; max distance in mm</returns>
+		public static double MaxDistToStructureExit(this Structure structure, VVector pos)
+		{
+			// rotate around the structure with origo in iso and find the maximum distance
+			double maxDistance = 0;
+			// use outer bounds to determine necessary search radius
+			double searchRadius = structure.MaxDistToBoundsExit(pos);
+			int samples = (int)searchRadius;
+			for (int angle = 0; angle < 360; angle++)
+			{
+				double x = pos.x + searchRadius * Math.Cos(angle * Math.PI / 180);
+				double y = pos.y + searchRadius * Math.Sin(angle * Math.PI / 180);
+				VVector endPoint = pos;
+				endPoint.x = x;
+				endPoint.y = y;
+
+				// Only check the distance if the profile actually intersects with the structure
+				var testIntersect = structure.GetSegmentProfile(pos, endPoint, new BitArray(samples)).Where(s => s.Value == true);
+				if (testIntersect.Any())
+				{
+					//SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(pos, endPoint, new BitArray(samples)).Where(s => s.Value == true).Last();
+					SegmentProfilePoint structureExitPoint = testIntersect.Last();
+
+					//convert from Type Point to VVector, may be unneccesary unless position is of interest
+					VVector exitPos = new VVector
+					{
+						x = structureExitPoint.Position.x,
+						y = structureExitPoint.Position.y,
+						z = structureExitPoint.Position.z
+					};
+
+					double distance = Math.Sqrt(Math.Pow(pos.x - exitPos.x, 2) + Math.Pow(pos.y - exitPos.y, 2));
+
+					if (distance > maxDistance)
+					{
+						maxDistance = distance;
+					}
+				}
+			}
+			return maxDistance;
+		}
+
+
+		/// <summary>
+		/// Maximum distance [mm] in x-y-plane from given Dicom coordinate to exitpoint of structure
+		/// TODO: investigate if this could be used instead: VVector[][] contour = structure.GetContoursOnImagePlane(slize_z)
+		/// </summary>
+		/// <param name="structure"></param>
+		/// <param name="isoPos"></param>
+		/// <returns>double; max distance in mm</returns>
+		public static double MaxDistToStructureContourExit(this Structure structure, StructureSet ss, VVector pos)
+		{
+			Image image = ss.Image;
+			int slice = image.ClosestSlice(pos);
+			double maxDistance = 0;
+			VVector[][] contour = structure.GetContoursOnImagePlane(slice);
+
+			foreach (var arr in contour)
+            {
+                foreach (var point in arr)
+                {
+					double distance = Math.Sqrt(Math.Pow(pos.x - point.x, 2) + Math.Pow(pos.y - point.y, 2));
+
+					if (distance > maxDistance)
+					{
+						maxDistance = distance;
+					}
+				}
+			}
+
+
+			return maxDistance;
+		}
+
+
+
+
+
+
+
+
+
+		/// <summary>
+		/// Maximum distance [mm] in x-y-plane from given Dicom coordinate to outer bounds of structure.
+		/// Primarily used to get a search radius for structure in a x-y-plane
+		/// </summary>
+		/// <param name="structure"></param>
+		/// <param name="pos"></param>
+		/// <returns></returns>
+		public static double MaxDistToBoundsExit(this Structure structure, VVector pos)
+		{
+			double lat1 = structure.MeshGeometry.Bounds.X;
+			double lat2 = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX;
+			/*
+			if (image.ImagingOrientation == PatientOrientation.HeadFirstSupine)
+            {
+				lat2 = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX;
+            }
+            else
+            {
+				lat2 = structure.MeshGeometry.Bounds.X - structure.MeshGeometry.Bounds.SizeX;
+			}
+			*/
+			// maybe use target.MeshGeometry.Positions.Max(p => p.Z)
+			double vrt1 = structure.MeshGeometry.Bounds.Y;
+			double vrt2 = structure.MeshGeometry.Bounds.Y + structure.MeshGeometry.Bounds.SizeY;
+
+			double[] dist = new double[4];
+
+			dist[0] = Math.Sqrt(Math.Pow(pos.x - lat1, 2) + Math.Pow(pos.y - vrt2, 2));
+			dist[1] = Math.Sqrt(Math.Pow(pos.x - lat2, 2) + Math.Pow(pos.y - vrt2, 2));
+			dist[2] = Math.Sqrt(Math.Pow(pos.x - lat1, 2) + Math.Pow(pos.y - vrt1, 2));
+			dist[3] = Math.Sqrt(Math.Pow(pos.x - lat2, 2) + Math.Pow(pos.y - vrt1, 2));
+
+			return dist.Max();
+		}
+
+
+	}
+
+
+	public static class ImageExtensions
+    {
+		/// <summary>
+		/// Calculates closest slice number in image from given Dicom position.
+		/// </summary>
+		/// <param name="image"></param>
+		/// <param name="pos"></param>
+		/// <returns>Slice number enumerated in caudal-cranial direction</returns>
+		public static int ClosestSlice(this Image image, VVector pos)
+        {
+			double distanceFromOrigin = Math.Abs(pos.z - image.Origin.z) / image.ZRes;
+			int sliceNumber = (int)Math.Round(distanceFromOrigin) + 1;
+			return sliceNumber;
+        }
+		public static int ClosestSlice(this Image image, double zPos)
+		{
+			double distanceFromOrigin = Math.Abs(zPos - image.Origin.z) / image.ZRes;
+			int sliceNumber = (int)Math.Round(distanceFromOrigin) + 1;
+			return sliceNumber;
+		}
+
+	}
+
+
 
 
 	//******************************************************************   SCRIPT START *************************************************
@@ -581,6 +755,11 @@ namespace VMS.TPS
 	// TODO: change "structure with assigned HU" when checking calculated plan to; "structures with assigned hu included in calculation"
 	//: TODO, make functions for TMI OPT work without plan, should be possible to recommend isocenters (even cm) and limits of last z_ptv
 	// based on ID of image (series properties?) Prereq: BODY, origo and couch ok
+	//DEBUG
+	//using System.Diagnostics;
+	//var sw = Stopwatch.StartNew();
+	//Console.WriteLine("Tid " + sw.ElapsedMilliseconds + " ms:  ");
+
 
 	class Script
 	{
@@ -728,7 +907,7 @@ namespace VMS.TPS
 			Structure structure = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type, might want to use PTV_Total instead
 			string junkPosZ = string.Empty;
 			// get list of isocenter positions
-			List<VVector> isos = IsocentersInPlan(plan);
+			List<VVector> isos = TMIIsocentersInPlan(plan);
 			//List<VVector> isos = TMISuggestedIsocentersHFS(plan.StructureSet);
 			// debug
 			for (int i = 0; i < isos.Count; i++)
@@ -758,16 +937,32 @@ namespace VMS.TPS
 				junkPosZ += "junktion " + i + ":\t" + (junkEclipse.z / 10).ToString("0.0") + "\n";
 			}
 
-
-
-			double searchRadius = IsoToStructureBoundsMax(structure, junction);
+			double searchRadius = structure.MaxDistToBoundsExit(junction);
 			VVector exitPos = new VVector();
 			VVector[] maxDistancePosition = new VVector[junctionPositions.Count];
 			double[] maxDistance = new double[junctionPositions.Count];
+			double[] maxDistance2 = new double[junctionPositions.Count];
+			double[] maxDistanceUp = new double[junctionPositions.Count];
+			double[] maxDistanceDown = new double[junctionPositions.Count];
 			maxDistance[0] = 0.0;
+			maxDistance2[0] = 0.0;
+			maxDistanceUp[0] = 0.0;
+			maxDistanceDown[0] = 0.0;
 
 			for (int j = 0; j < junctionPositions.Count; j++)
 			{
+				maxDistance2[j] = structure.MaxDistToStructureContourExit(ss, junctionPositions[j]);
+				VVector Up = junctionPositions[j];
+				VVector Down = junctionPositions[j];
+				Up.z += image.ZRes; 
+				Down.z -= image.ZRes;
+				maxDistanceUp[j] = structure.MaxDistToStructureContourExit(ss, Up);
+				maxDistanceDown[j] = structure.MaxDistToStructureContourExit(ss, Down);
+
+
+
+
+
 
 				// rotate around the structure with origo in junktion and find the maximum distance
 				for (int angle = 0; angle < 360; angle++)
@@ -777,21 +972,29 @@ namespace VMS.TPS
 					VVector endPoint = junctionPositions[j];
 					endPoint.x = x;
 					endPoint.y = y;
-					// TODO: add condition if segment profile don't intersect with the structure. Use of LastOrDefault uncertain what Default is 
-					SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(200)).Where(s => s.Value == true).LastOrDefault();
 
-					//convert from Type Point to VVector
-					exitPos.x = structureExitPoint.Position.x;
-					exitPos.y = structureExitPoint.Position.y;
-					exitPos.z = structureExitPoint.Position.z;
 
-					double distance = Math.Sqrt(Math.Pow(junctionPositions[j].x - exitPos.x, 2) + Math.Pow(junctionPositions[j].y - exitPos.y, 2));
+					var testIntersect = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(200)).Where(s => s.Value == true);
+					if (testIntersect.Count() > 0)
+					{
 
-                    if (distance > maxDistance[j])
-                    {
-						maxDistance[j] = distance; 
-                        maxDistancePosition[j] = exitPos; 
-                    }
+						// TODO: add condition if segment profile don't intersect with the structure. Use of LastOrDefault uncertain what Default is 
+						SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(200)).Where(s => s.Value == true).Last();
+
+						//convert from Type Point to VVector
+						exitPos.x = structureExitPoint.Position.x;
+						exitPos.y = structureExitPoint.Position.y;
+						exitPos.z = structureExitPoint.Position.z;
+
+						double distance = Math.Sqrt(Math.Pow(junctionPositions[j].x - exitPos.x, 2) + Math.Pow(junctionPositions[j].y - exitPos.y, 2));
+
+						if (distance > maxDistance[j])
+						{
+							maxDistance[j] = distance;
+							maxDistancePosition[j] = exitPos;
+						}
+					}
+					
                 }
 			}
 			// Note that all positions are still in dicom coordinates and distances in mm
@@ -811,6 +1014,9 @@ namespace VMS.TPS
 				VVector maxDistPosEclipse = image.DicomToUser(maxDistancePosition[i], plan);
 				junkPosZ += "\n\nmaxpos(x,y,z) " + ":\t(" + (maxDistPosEclipse.x / 10).ToString("0.0") + ", " + (maxDistPosEclipse.y / 10).ToString("0.0") + ", " + (maxDistPosEclipse.z / 10).ToString("0.0") + ")\n";
 				junkPosZ += "Max distance:\t" + (maxDistance[i] / 10).ToString("0.0") + "\n";
+				junkPosZ += "Max distance2:\t" + (maxDistance2[i] / 10).ToString("0.0") + "\n";
+				junkPosZ += "Max distanceUp:\t" + (maxDistanceUp[i] / 10).ToString("0.0") + "\n";
+				junkPosZ += "Max distanceDown:\t" + (maxDistanceDown[i] / 10).ToString("0.0") + "\n";
 				junkPosZ += "Max delta to cover the junction in all angles: \t" + (2*fz*(100-(maxDistance[i] / 10))/100).ToString("0.0") + "\n";
 			}
 
@@ -871,39 +1077,6 @@ namespace VMS.TPS
 		}
 
 
-		public double MaxDistanceIsoToStructureArc(VVector iso, Structure structure)
-        {
-			// rotate around the structure with origo in iso and find the maximum distance
-			double maxDistance = 0;
-			double searchRadius = IsoToStructureBoundsMax(structure, iso);
-			int samples = (int)searchRadius;
-			for (int angle = 0; angle < 360; angle++)
-			{
-				double x = iso.x + searchRadius * Math.Cos(angle * Math.PI / 180);
-				double y = iso.y + searchRadius * Math.Sin(angle * Math.PI / 180);
-				VVector endPoint = iso;
-				endPoint.x = x;
-				endPoint.y = y;
-				// TODO: add condition if segment profile don't intersect with the structure. Use of LastOrDefault uncertain what Default is 
-				SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(iso, endPoint, new BitArray(samples)).Where(s => s.Value == true).LastOrDefault();
-
-                //convert from Type Point to VVector, may be unneccesary unless position is of interest
-                VVector exitPos = new VVector
-                {
-                    x = structureExitPoint.Position.x,
-                    y = structureExitPoint.Position.y,
-                    z = structureExitPoint.Position.z
-                };
-
-                double distance = Math.Sqrt(Math.Pow(iso.x - exitPos.x, 2) + Math.Pow(iso.y - exitPos.y, 2));
-
-				if (distance > maxDistance)
-				{
-					maxDistance = distance;
-				}
-			}
-			return maxDistance;
-		}
 
 
 		public List<VVector> TMISuggestedIsocentersHFS(PlanSetup plan)
@@ -917,14 +1090,14 @@ namespace VMS.TPS
 
 			//Lateral; even mm based on geometric average? only deviate from zero if larger than 5 mm? Or if > 1 cm and delta < 20
 			//    Vertical; even mm or even cm? based on mean of weighted geometric center of lungsTotal and PTV_Total
-			//	  If trying to maximize delta; lateral shift has more effect
+			//	  If trying to maximize delta; lateral shift has more effect than vertical
 			//    Long: 1:st iso: even cm? coverage ptv cran + margin 3 mm, round ceiling, yep
 			//    Long: iteratively try with 20 find smallest SSD all junctions, if necessary-> 19, also consider vrt and lat
 			Structure ptvTotal = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
-			VVector ptvGeoCenter = GetStructureGeometricCenter(ptvTotal);
+			VVector ptvGeoCenter = ptvTotal.GeometricCenter();
 
 			Structure lungTotal = ss.Structures.Where(s => s.Id == "LungTotal" || s.Id == "Lung Total").SingleOrDefault();  // TODO: better to take dicom type
-			VVector lungGeoCenter = GetStructureGeometricCenter(lungTotal);
+			VVector lungGeoCenter = lungTotal.GeometricCenter();
 			
 
 			// Set first cranial isocenter
@@ -972,7 +1145,7 @@ namespace VMS.TPS
 				double maxDistance = 0;
 				for (int i = 0; i < junctionPositions.Count; i++)
 				{
-					double dist = MaxDistanceIsoToStructureArc(junctionPositions[i], ptvTotal);
+					double dist = ptvTotal.MaxDistToStructureExit(junctionPositions[i]);
 					if (dist > maxDistance)
 					{
 						maxDistance = dist;
@@ -1013,7 +1186,7 @@ namespace VMS.TPS
 			Structure ptvTotal = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
 			Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type
 			//Bolus is unfortunately not a structure, can not check it the same way. However, if PTV is cropped, then it's likely the bolus is as well.
-			VVector doseOrigin = plan.Dose.Origin;
+			
 			VVector imageOrigin = image.Origin;
 
 			double bodyLeft = body.MeshGeometry.Positions.Max(p => p.X);
@@ -1030,32 +1203,52 @@ namespace VMS.TPS
 			double ptvCran = ptvTotal.MeshGeometry.Positions.Max(p => p.Z);
 			double ptvCaud = ptvTotal.MeshGeometry.Positions.Min(p => p.Z);
 
-			// dose matrix coordinate system is dependent on plan treatment orientation
-			double doseCran;
-			double doseCaud;
-			double doseLeft;
-			double doseRight;
+			string message = string.Empty;
 
-			if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
+
+			// dose matrix coordinate system is dependent on plan treatment orientation
+			// can only be checked if calculated, found no way to check the calculation volume before calculation
+
+			if (plan.Dose != null)
             {
-				doseCran = doseOrigin.z + plan.Dose.ZSize * plan.Dose.ZRes;
-				doseCaud = doseOrigin.z;
-				doseLeft = doseOrigin.x + plan.Dose.XSize * plan.Dose.XRes;
-				doseRight = doseOrigin.x;
-            }
-            else
-            {
-				doseCran = doseOrigin.z;
-				doseCaud = doseOrigin.z - plan.Dose.ZSize * plan.Dose.ZRes;
-				doseLeft = doseOrigin.x;
-				doseRight = doseOrigin.x - plan.Dose.XSize * plan.Dose.XRes;
+				VVector doseOrigin = plan.Dose.Origin;
+				double doseCran;
+				double doseCaud;
+				double doseLeft;
+				double doseRight;
+
+				if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
+				{
+					doseCran = doseOrigin.z + plan.Dose.ZSize * plan.Dose.ZRes;
+					doseCaud = doseOrigin.z;
+					doseLeft = doseOrigin.x + plan.Dose.XSize * plan.Dose.XRes;
+					doseRight = doseOrigin.x;
+				}
+				else
+				{
+					doseCran = doseOrigin.z;
+					doseCaud = doseOrigin.z - plan.Dose.ZSize * plan.Dose.ZRes;
+					doseLeft = doseOrigin.x;
+					doseRight = doseOrigin.x - plan.Dose.XSize * plan.Dose.XRes;
+				}
+
+				double doseDors = doseOrigin.y + plan.Dose.YSize * plan.Dose.YRes;
+				double doseVent = doseOrigin.y;
+
+				message += "\nDose matrix margin from PTV is:\n";
+
+				message += "Cran:\t" + (doseCran - ptvCran).ToString("0") + " mm.\n";
+				message += "Caud:\t" + (-(doseCaud - ptvCaud)).ToString("0") + " mm.\n";
+				message += "Left:\t" + (doseLeft - ptvLeft).ToString("0") + " mm.\n";
+				message += "Right:\t" + (-(doseRight - ptvRight)).ToString("0") + " mm.\n";
+				message += "Dose:\t" + (doseDors - ptvDors).ToString("0") + " mm.\n";
+				message += "Vent:\t" + (-(doseVent - ptvVent)).ToString("0") + " mm.\n";
 			}
 
-			double doseDors = doseOrigin.y + plan.Dose.YSize * plan.Dose.YRes;
-			double doseVent = doseOrigin.y;
 
 
-			string message = string.Empty;
+
+			
 
 
 			double imz = image.XSize * image.XRes;
@@ -1082,14 +1275,7 @@ namespace VMS.TPS
 			message += "Dors:\t" + (ptvDors - bodyDors).ToString("0") + " mm.\n";
 			message += "Vent:\t" + (-(ptvVent - bodyVent)).ToString("0") + " mm.\n";
 
-			message += "\nDose matrix margin from PTV is:\n";
 
-			message += "Cran:\t" + (doseCran - ptvCran).ToString("0") + " mm.\n";
-			message += "Caud:\t" + (-(doseCaud - ptvCaud)).ToString("0") + " mm.\n";
-			message += "Left:\t" + (doseLeft - ptvLeft).ToString("0") + " mm.\n";
-			message += "Right:\t" + (-(doseRight - ptvRight)).ToString("0") + " mm.\n";
-			message += "Dose:\t" + (doseDors - ptvDors).ToString("0") + " mm.\n";
-			message += "Vent:\t" + (-(doseVent - ptvVent)).ToString("0") + " mm.\n";
 
 
 			MessageBox.Show(message);
@@ -1107,8 +1293,8 @@ namespace VMS.TPS
 			double fieldSizeFFS = 140.0;
 			double fieldSizeHFS = 135.0;
 			int maxDeltaHFS = 200;
-			int maximumDelta = 250;
-			int minimumDelta = 180;
+			int maxDeltaFFS = 250;
+			int minDeltaFFS = 180;
 			Image image = ss.Image;
 			//int caudalMargin = 5; // Extra caudal margin for buildup
 
@@ -1118,14 +1304,14 @@ namespace VMS.TPS
 			VVector lastIsoHFS = ss.Image.UserOrigin;
 
 			// Determine position of first iso FFS separately due to smaller field size for HFS means junction in different place
-			// Delta coordinates will be different and will be sent from origo, want good overlap so calculate with field size from HFS
+			// Delta coordinates will be different and will be sent from origo, want good overlap so ignore this and calculate with field size from HFS
 			VVector firstIsoFFS = lastIsoHFS;
 
 			string debug = string.Empty;
 
 			List<VVector> junctionPositions = new List<VVector>();
 
-			for (int delta = maxDeltaHFS; delta >= minimumDelta; delta -= 10)
+			for (int delta = maxDeltaHFS; delta >= minDeltaFFS; delta -= 10)
 			{
 
 				firstIsoFFS.z = lastIsoHFS.z - delta;
@@ -1133,7 +1319,7 @@ namespace VMS.TPS
 				junction.z = (firstIsoFFS.z + lastIsoHFS.z) / 2;
 
 				//find maximum distance from each junction position (lng) in isocenter plane (lat, vrt) to structure exitpoint (i.e. minimum SSD)
-				double maxDistance = MaxDistanceIsoToStructureArc(junction, ptvTotal);
+				double maxDistance = ptvTotal.MaxDistToStructureExit(junction);
 
 				// break if condition is satisfied or if minimum acceptable delta is reached whether the condition is met or not
 				if (delta < 2 * fieldSizeHFS * (Machine.SID - (maxDistance)) / Machine.SID || delta == 180)
@@ -1151,7 +1337,7 @@ namespace VMS.TPS
 
 
 			// start value for number of isos, i.e. minimum number of isocenters using maximum delta
-			int minNrOfIsos = (int)Math.Ceiling(Math.Abs(firstIsoFFS.z - lastIsoFFS.z) / maximumDelta);
+			int minNrOfIsos = (int)Math.Ceiling(Math.Abs(firstIsoFFS.z - lastIsoFFS.z) / maxDeltaFFS);
 
 
 			// Iteration; start with maximum delta, calculate nr of isos necessary, check if overlap occurs in the 
@@ -1184,7 +1370,7 @@ namespace VMS.TPS
 				double maxDistance = 0;
 				for (int i = 0; i < junctionPositions.Count; i++)
 				{
-					double dist = MaxDistanceIsoToStructureArc(junctionPositions[i], ptvTotal);
+					double dist = ptvTotal.MaxDistToStructureExit(junctionPositions[i]);
 					if (dist > maxDistance)
 					{
 						maxDistance = dist;
@@ -1227,10 +1413,10 @@ namespace VMS.TPS
 			double assumedFieldsize = 135;  // TODO: Check the actual field size in cranial direction...    **********************************double x1 = cranBeam.ControlPoints.First. ... nope
 
 			string debug = string.Empty;
-			
+
 			// check the max distance from junction/iso to the four corners of the bounds of the structure, same values for all junctions
-			double searchRadius = IsoToStructureBoundsMax(structure, isoPos);
-			             
+			double searchRadius = structure.MaxDistToBoundsExit(isoPos);
+
 			// Rotate around the structure with origo in iso and check intersection with structure. Report optimal position
 			// of iso to cover PTV. Enough to scan from iso to outer position determined by scan radius, divergence and field size
 
@@ -1273,7 +1459,7 @@ namespace VMS.TPS
 		/// <returns></returns>
 		public VVector ZposCoverAllAngles(Structure structure, VVector iso, double fieldSize, bool cranial) 
 		{
-			double searchRadius = IsoToStructureBoundsMax(structure, iso);
+			double searchRadius = structure.MaxDistToBoundsExit(iso);
 			double zOffsetIso = fieldSize;
 			double zOffsetEnd = fieldSize * (Machine.SID - searchRadius) / Machine.SID;
 			VVector optimalPosDicom = iso;
@@ -1307,42 +1493,6 @@ namespace VMS.TPS
 			return optimalPosDicom;
 		}
 
-
-	
-
-		/// <summary>
-		/// Maximum distance [mm] in x-y-plane from given Dicom coordinate to outer bounds of structure
-		/// </summary>
-		/// <param name="structure"></param>
-		/// <param name="isoPos"></param>
-		/// <returns></returns>
-		public double IsoToStructureBoundsMax(Structure structure, VVector isoPos) 
-		{
-			double lat1 = structure.MeshGeometry.Bounds.X;
-			double lat2 = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX;
-			/*
-			if (image.ImagingOrientation == PatientOrientation.HeadFirstSupine)
-            {
-				lat2 = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX;
-            }
-            else
-            {
-				lat2 = structure.MeshGeometry.Bounds.X - structure.MeshGeometry.Bounds.SizeX;
-			}
-			*/
-			// maybe use target.MeshGeometry.Positions.Max(p => p.Z)
-			double vrt1 = structure.MeshGeometry.Bounds.Y;
-			double vrt2 = structure.MeshGeometry.Bounds.Y + structure.MeshGeometry.Bounds.SizeY;
-
-			double[] dist = new double[4];
-
-			dist[0] = Math.Sqrt(Math.Pow(isoPos.x - lat1, 2) + Math.Pow(isoPos.y - vrt2, 2));
-			dist[1] = Math.Sqrt(Math.Pow(isoPos.x - lat2, 2) + Math.Pow(isoPos.y - vrt2, 2));
-			dist[2] = Math.Sqrt(Math.Pow(isoPos.x - lat1, 2) + Math.Pow(isoPos.y - vrt1, 2));
-			dist[3] = Math.Sqrt(Math.Pow(isoPos.x - lat2, 2) + Math.Pow(isoPos.y - vrt1, 2));
-
-			return dist.Max();
-		}
 
 
 		/// <summary>
@@ -1383,7 +1533,7 @@ namespace VMS.TPS
 		/// </summary>
 		/// <param name="plan"></param>
 		/// <returns></returns>
-		public List<VVector> IsocentersInPlan(PlanSetup plan)
+		public List<VVector> TMIIsocentersInPlan(PlanSetup plan)
         {
 			// make list of isocenter positions
 			List<VVector> isos = new List<VVector>();
@@ -1411,34 +1561,16 @@ namespace VMS.TPS
             }
             else
             {
-				VVector gCenter = GetStructureGeometricCenter(body);
+				VVector gCenter = body.GeometricCenter();
 				VVector gCEclipse = image.DicomToUser(gCenter, plan);
 				VVector wCenter = body.CenterPoint;
 				VVector wCEclipse = image.DicomToUser(wCenter, plan);
 			results = "Body weighted center: \tvrt: " + (wCEclipse.y / 10).ToString("0.0") + "\tlat: " + (wCEclipse.x / 10).ToString("0.0") + "\n" +
 					"Body geometric center: \tvrt: " + (gCEclipse.y / 10).ToString("0.0") + "\tlat: " + (gCEclipse.x / 10).ToString("0.0") + "\n";
 			}
+
 			return results;
 		}
-
-		/// <summary>
-		/// Calculates geometric center of structure bounds in Dicom coordinates
-		/// </summary>
-		/// <param name="structure"></param>
-		/// <returns></returns>
-		private VVector GetStructureGeometricCenter(Structure structure) 
-		{
-            VVector geomCenter = new VVector
-            {
-                x = structure.MeshGeometry.Bounds.X + structure.MeshGeometry.Bounds.SizeX / 2,
-                y = structure.MeshGeometry.Bounds.Y + structure.MeshGeometry.Bounds.SizeY / 2,
-                z = structure.MeshGeometry.Bounds.Z + structure.MeshGeometry.Bounds.SizeZ / 2
-			};
-			return geomCenter;
-		}
-
-		
-
 
 
         /// <summary>
@@ -1953,7 +2085,6 @@ namespace VMS.TPS
 
 				}
 			}
-
 			return cResults;
 		}
 
@@ -1965,6 +2096,10 @@ namespace VMS.TPS
 			// CTVN_45, CTVT_61.2, CTV1_45 CTVN1_L_52.6(fritext)  etc, GTV seems a bit more free styling... GTVN(4D) etc
 			Regex ctvNaming = new Regex(@"^(ctv)(?<type>[tnm]?)(?<number>[1-9]?)_(?<position>[lr])?_?(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?)(?:[\(](?<description>\w+)[\)])?", RegexOptions.IgnoreCase);
 			Regex ptvNaming = new Regex(@"^(ptv)(?<type>[tnm]?)(?<number>[1-9]?)_(?<position>[lr])?_?(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?)(?:[\(](?<description>\w+)[\)])?", RegexOptions.IgnoreCase);
+			// strict naming rules
+			Regex targetNaming = new Regex(@"^([GCIP]TV)(?<type>[TNM]?)(?<number>[1-9]?)_(?<position>[LR])?_?(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?)(?:[\(](?<description>\w+)[\)])?");
+			// more relaxed naming rules
+			Regex targetNamingLaxed = new Regex(@"^([GCIP]TV)(?<type>[TNM]?)(?<number>[1-9]?)(_(?<position>[LR]))?(_(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?))?(?:[\(](?<description>\w+)[\)])?", RegexOptions.IgnoreCase);
 			StructureSet ss = plan.StructureSet;
 			// structures included resp excluded in calculation (outside body and not bolus, empty)
 			// sort order type; ptv, ctv, itv, gtv 
@@ -1975,28 +2110,41 @@ namespace VMS.TPS
 			EmptyStr = ss.Structures.Where(s => s.HasSegment == false).ToList();
 
 			//int nrOfPTV = ss.Structures.Where(s => s.Id.Length > 4).Where(s => s.Id.Substring(0, 3) == "PTV").Where(s => s.DicomType == "PTV").Count();
-			structures.OrderByDescending(s => s.Id.Substring(0, 3) == "PTV").ThenByDescending(s => s.Id.Substring(0, 3) == "CTV").ThenByDescending(s => s.Id.Substring(0, 3) == "GTV").ToList();
+			//structures.OrderByDescending(s => s.Id.Substring(0, 3) == "PTV").ThenByDescending(s => s.Id.Substring(0, 3) == "CTV").ThenByDescending(s => s.Id.Substring(0, 3) == "GTV").ToList();
 
-			// check dicom types
+			// check dicom types and structure codes for the structures named as target volumes
 
-			List<Structure> ptvStruct = structures.Where(s => s.Id.Substring(0, 3).ToLower() == "ptv").ToList();
-			List<Structure> ctvStruct = structures.Where(s => s.Id.Substring(0, 3).ToLower() == "ctv").ToList();
-			List<Structure> itvStruct = structures.Where(s => s.Id.Substring(0, 3).ToLower() == "itv").ToList();
-			List<Structure> gtvStruct = structures.Where(s => s.Id.Substring(0, 3).ToLower() == "gtv").ToList();
+			List<Structure> ptvStruct = structures.Where(s => s.Id.Length >= 3 && s.Id.Substring(0, 3).ToUpper() == "PTV").OrderBy(s => s.Id).ToList();
+			List<Structure> ctvStruct = structures.Where(s => s.Id.Length >= 3 && s.Id.Substring(0, 3).ToUpper() == "CTV").OrderBy(s => s.Id).ToList();
+			List<Structure> itvStruct = structures.Where(s => s.Id.Length >= 3 && s.Id.Substring(0, 3).ToUpper() == "ITV").OrderBy(s => s.Id).ToList();
+			List<Structure> gtvStruct = structures.Where(s => s.Id.Length >= 3 && s.Id.Substring(0, 3).ToUpper() == "GTV").OrderBy(s => s.Id).ToList();
+
+			List<Structure> targetStructures = new List<Structure>();
+			targetStructures.AddRange(ptvStruct);
+			targetStructures.AddRange(ctvStruct);
+			targetStructures.AddRange(itvStruct);
+			targetStructures.AddRange(gtvStruct);
+			
 
 			string message = string.Empty;
-			// TODO: how to make this more DRY
+			foreach (var target in targetStructures)
+			{
+				string searchString = target.Id.Substring(0, 3).ToUpper();
+				if (target.DicomType.Contains(searchString) == false)
+				{
+					message += target.Id + ": ändra till volymtyp " + searchString + " (är nu satt som " + target.DicomType + ")\n";
+				}
+				if (target.StructureCode.Code.Contains(searchString) == false)
+				{
+					message += target.Id + ": ändra till strukturkod " + searchString + " (är nu satt som " + target.StructureCode.Code.FirstOrDefault() + ")\n";
+				}
+			}
+			
+
+			// ******************************   testing testing *********************
+
             foreach (var ptv in ptvStruct)
             {
-                if (ptv.DicomType.Contains("PTV") == false)
-                {
-					message += ptv.Id + ": ändra till volymtyp PTV (är nu satt som " + ptv.DicomType + ")\n";
-				}
-				if (ptv.StructureCode.Code.Contains("PTV") == false)
-				{
-					message += ptv.Id + ": ändra till strukturkod PTV xxxx (är nu satt som " + ptv.StructureCode + ")\n";
-				}
-
 				double doseValue = 0.0;
                 if (ptvNaming.IsMatch(ptv.Id))
                 {
@@ -2010,50 +2158,22 @@ namespace VMS.TPS
                 {
 					message += ptv.Id + " verkar inte följa namngivningsregler för PTV.\n";
 				}
-            }
 
-			foreach (var ctv in ctvStruct)
-			{
-				if (ctv.DicomType.Contains("CTV") == false)
-				{
-					message += ctv.Id + ": ändra till volymtyp CTV (är nu satt som " + ctv.DicomType + ")\n";
-				}
-				if (ctv.StructureCode.Code.Contains("CTV") == false)
-				{
-					message += ctv.Id + ": ändra till strukturkod CTV xxxx (är nu satt som " + ctv.StructureCode + ")\n";
-				}
-				if (ctvNaming.IsMatch(ctv.Id)) 
-				{
-                }
-                else
-                {
-					message += ctv.Id + " verkar inte följa namngivningsregler för CTV.\n";
-				}
+				double caud = ptv.MeshGeometry.Bounds.Z;
+				message += "\nTesting: " + ptv.Id + ": starts from slize " + ss.Image.ClosestSlice(caud) + "\n";
+
 			}
 
-			foreach (var itv in itvStruct)
-			{
-				if (itv.DicomType.Contains("ITV") == false)
-				{
-					message += itv.Id + ": ändra till volymtyp ITV (är nu satt som " + itv.DicomType + ")\n";
-				}
-				if (itv.StructureCode.Code.Contains("ITV") == false)
-				{
-					message += itv.Id + ": ändra till strukturkod ITV xxxx (är nu satt som " + itv.StructureCode + ")\n";
-				}
-			}
 
-			foreach (var gtv in gtvStruct)
-			{
-				if (gtv.DicomType.Contains("GTV") == false)
-				{
-					message += gtv.Id + ": ändra till volymtyp GTV (är nu satt som " + gtv.DicomType + ")\n";
-				}
-				if (gtv.StructureCode.Code.Contains("GTV") == false)
-				{
-					message += gtv.Id + ": ändra till strukturkod GTV xxxx (är nu satt som " + gtv.StructureCode + ")\n";
-				}
-			}
+
+
+
+
+
+
+
+
+
 
 			if (string.IsNullOrEmpty(message) == false)
             {
@@ -2076,10 +2196,14 @@ namespace VMS.TPS
 			//MessageBox.Show(listOfStr);
 		}
 
-		private bool StructureInPlan(Structure str)
-        {
-			return true;
-        }
+
+
+
+
+
+
+
+
 
 
 		//TODO: create method for getting coord 8 corners of max pos CVT  and check if the coord is included within respective 8 corners of PTV
@@ -2289,7 +2413,7 @@ namespace VMS.TPS
 		}
 
 		// ********* 	Targetvolym; kollar att det är valt och av Dicom-typen PTV *********
-
+		//TODO: first find structure in structure set whitch corresponds to target structure, then do check on that
 		public string CheckTargetVolumeID(PlanSetup plan, StructureSet sSet)
 		{
 			string cResults = "";
@@ -2303,7 +2427,9 @@ namespace VMS.TPS
 				Structure target = sSet.Structures.Where(s => s.Id == plan.TargetVolumeID).Where(s => s.DicomType == "PTV" || s.Id.Contains("(fg)")).SingleOrDefault();
 				if (target == null)
 				{
-					cResults = "* Plan target volume should be of type PTV. \n";
+
+					target = sSet.Structures.Where(s => s.Id == plan.TargetVolumeID).SingleOrDefault();
+					cResults = "* Plan target volume should be of type PTV.\nPlan target volume: " + target.Id + " of Dicom-type: " + target.DicomType + ".\n";
 				}
 				else
 				{
@@ -2704,7 +2830,7 @@ namespace VMS.TPS
 				if (beam.MLCPlanType == MLCPlanType.ArcDynamic && planCat == PlanCat.SBRT)
 				{
 					remarks += CheckArcDynFFF(beam, ref countArcDynFFFRemarks);
-					remarks += CheckArcDynCollAngle(beam, ref countArcDynCollAngleRemarks);
+					remarks += SBRTCheckArcDynCollAngle(beam, ref countArcDynCollAngleRemarks);
 				}
 				if (beam.MLCPlanType == MLCPlanType.Static)
 				{
@@ -2896,7 +3022,7 @@ namespace VMS.TPS
 
 		// ********* 	Kontroll av kollimatorvinkel vid Dynamic Arc	*********
 
-		public string CheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemarks)
+		public string SBRTCheckArcDynCollAngle(Beam beam, ref int countArcDynCollAngleRemarks)
 		{
 			string cResults = "";
 			if (countArcDynCollAngleRemarks < 1 && beam.ControlPoints.First().CollimatorAngle > 5.0 && beam.ControlPoints.First().CollimatorAngle < 355.0)
