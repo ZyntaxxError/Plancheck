@@ -23,139 +23,12 @@ using System.Diagnostics;
  * TODO Plan sum; foreach plan: check, easier to do in build and wpf...
  * TODO: For dynamic plans; check if verification plan exists only if plan status is planning approved 
  * TODO: z-value for imaging, recommend extended CBCT
+ * TODO: (double[2]) var gRange = plan.GetGantryRange() to check for possible collission
+ * collision at beam or traveling to beam, assuming starts at gantry 0? imaging?
  * */
 
 namespace VMS.TPS
 {
-
-    public class PatternGradient
-	{
-		public List<double> DistanceInMm { get; set; }
-		public List<int> GradientHUPerMm { get; set; }
-		public List<double> MinGradientLength { get; set; }
-		public List<int> PositionToleranceMm { get; set; }
-		public int GradIndexForCoord { get; set; }
-
-		/// <summary>
-		/// SameSign; helper method to determine if two doubles have the same sign
-		/// </summary>
-		/// <param name="num1"></param>
-		/// <param name="num2"></param>
-		/// <returns></returns>
-		static bool SameSign(double num1, double num2)
-		{
-			return num1 >= 0 && num2 >= 0 || num1 < 0 && num2 < 0;
-		}
-
-
-
-		/// <summary>
-		/// gives the Dicom-coordinates of a gradient 
-		/// </summary>
-		/// <param name="coord"> 1D coordinates of profile in mm</param>
-		/// <param name="val"> values of the profile</param>
-		/// <param name="valPermm"> Gradient to search for in value/mm with sign indicating direction</param>
-		/// <param name="dist"> Distance in mm to the next gradient</param>
-		/// <param name="posTolerance"> Tolerance of position of found gradient in mm</param>
-		/// <returns></returns>
-		public static double GetGradientCoordinates(List<double> coord, List<double> val, List<int> valPermm, List<double> dist, List<int> posTolerance, int indexToReturn)
-		{
-			string debug = "";
-			double[] grad = new double[coord.Count - 1];
-			double[] pos = new double[coord.Count - 1];
-			int index = 0;
-
-			double gradientStart;
-			double gradientEnd;
-			double gradientMiddle;
-			// resample profile to gradient with position inbetween profile points ( number of samples decreases with one)
-			for (int i = 0; i < coord.Count - 2; i++)
-			{
-				pos[i] = (coord[i] + coord[i + 1]) / 2;
-				grad[i] = (val[i + 1] - val[i]) / Math.Abs(coord[i + 1] - coord[i]);
-			}
-
-			List<double> gradPosition = new List<double>();
-			int indexToReturnToInCaseOfFail = 0;
-
-			for (int i = 0; i < pos.Count(); i++)
-			{
-				if (index == valPermm.Count())                        //break if last condition passed 
-				{
-					break;
-				}
-				// if gradient larger than given gradient and in the same direction
-				//if (Math.Abs((valueHU[i + 1] - valueHU[i]) / Math.Abs(coord[i + 1] - coord[i])) > (Math.Abs(hUPerMm[index])) && SameSign(grad[i], hUPerMm[index]))
-				if (Math.Abs(grad[i]) > Math.Abs(valPermm[index]) && SameSign(grad[i], valPermm[index]))
-				{
-					gradientStart = pos[i];
-					gradientEnd = pos[i];
-
-					//Keep stepping up while gradient larger than given huPerMm
-					while (Math.Abs(grad[i]) > (Math.Abs(valPermm[index])) && SameSign(grad[i], valPermm[index]) && i < coord.Count - 2)
-					{
-						i++;
-						gradientEnd = pos[i];
-						if (index == 0)
-						{
-							indexToReturnToInCaseOfFail = i + 1; // if the search fails, i.e. can not find next gradient within the distance given, return to position directly after first gradient ends
-						}
-					}
-					gradientMiddle = (gradientStart + gradientEnd) / 2;
-					// if this is the first gradient (i.e. index == 0), cannot yet compare the distance between the gradients, step up index and continue
-					if (index == 0)
-					{
-						gradPosition.Add(gradientMiddle);
-						index++;
-					}
-					// if gradient found before expected position (outside tolerance), keep looking
-					else if (Math.Abs(gradientMiddle - gradPosition[index - 1]) < dist[index] - posTolerance[index] && i < pos.Count() - 2)
-					{
-						i++;
-						//MessageBox.Show(Math.Abs(gradientMiddle - gradPosition[index - 1]).ToString("0.0"));
-					}
-					// if next gradient not found within tolerance distance, means that the first gradient is probably wrong, reset index
-					else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) > (Math.Abs(dist[index]) + posTolerance[index])))
-					{
-						debug += "Fail " + (Math.Abs(gradientMiddle - gradPosition[index - 1])).ToString("0.0") + "\t" + (dist[index] + posTolerance[index]).ToString("0.0") + "\n";
-						gradPosition.Clear();
-						index = 0;
-						i = indexToReturnToInCaseOfFail;
-					}
-					//  compare the distance between the gradients to the criteria given, step up index and continue if within tolerance
-					else if ((Math.Abs(gradientMiddle - gradPosition[index - 1]) > (dist[index] - posTolerance[index])) && (Math.Abs(gradientMiddle - gradPosition[index - 1]) < (dist[index] + posTolerance[index])))
-					{
-						gradPosition.Add(gradientMiddle);
-						index++;
-						if (index == 1)
-						{
-							indexToReturnToInCaseOfFail = i;
-						}
-					}
-					else
-					{   // if not the first gradient and the distance betwen the gradients are not met within the tolerance; reset index and positions and continue search
-						// reset search from second gradient position to avoid missing the actual gradient.
-						if (gradPosition.Count > 1 && indexToReturnToInCaseOfFail > 0)
-						{
-							i = indexToReturnToInCaseOfFail;
-						}
-						gradPosition.Clear();
-						index = 0;
-					}
-				}
-			}
-			if (index == valPermm.Count())
-			{
-				return gradPosition[indexToReturn];
-			}
-			else
-			{
-				return 0.0;
-			}
-		} // end method 
-	}
-
-
 
 	public static class Conversion
     {
@@ -272,19 +145,19 @@ namespace VMS.TPS
 
 
     public static readonly Dictionary<string, int> DoseRates = new Dictionary<string, int>
-            {
-                { "6X", 600 },
-                { "15X", 600 },
-                { "6X-FFF", 1400 },
-                { "10X-FFF", 2400 },
+			{
+				{ "6X", 600 },
+				{ "15X", 600 },
+				{ "6X-FFF", 1400 },
+				{ "10X-FFF", 2400 },
 				{ "6E", 1000 },
 				{ "9E", 1000 },
 				{ "12E", 1000 }
 			};
-}
+	}
+
 	public static class PlanExtensions
     {
-
 		public static bool AutomationPrerequisites(this PlanSetup plan)
 		{
 			//TODO: Missing check for same accessories for all beams
@@ -1449,6 +1322,27 @@ namespace VMS.TPS
 		}
 
 
+		private string TMICheckForCouchValues(PlanSetup plan)
+		{
+			string cResults = string.Empty;
+			string beamIdWithCouchValues = string.Empty;
+			foreach (var beam in plan.Beams)
+			{
+				if (!beam.ControlPoints[0].TableTopLateralPosition.ToString().Contains("NaN") || !beam.ControlPoints[0].TableTopLongitudinalPosition.ToString().Contains("NaN") || !beam.ControlPoints[0].TableTopVerticalPosition.ToString().Contains("NaN"))
+				{
+					beamIdWithCouchValues += beam.Id + ", ";
+				}
+			}
+
+			if (beamIdWithCouchValues.Length > 0)
+			{
+				cResults = "* Please remove couch coordinates from the following fields: " + beamIdWithCouchValues.Substring(0, beamIdWithCouchValues.Length - 2) + ".\n\n";
+			}
+			return cResults;
+		}
+
+
+
 		/// <summary>
 		/// returns z-position of isocenter in dicom coordinates where given field size [mm] covers the structure in all angles
 		/// either cranially or caudally
@@ -2093,13 +1987,10 @@ namespace VMS.TPS
 		private void CheckStructNameAndType(PlanSetup plan)
 		{
 			// From dose value and plan dose recommend isodose lines?
-			// CTVN_45, CTVT_61.2, CTV1_45 CTVN1_L_52.6(fritext)  etc, GTV seems a bit more free styling... GTVN(4D) etc
-			Regex ctvNaming = new Regex(@"^(ctv)(?<type>[tnm]?)(?<number>[1-9]?)_(?<position>[lr])?_?(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?)(?:[\(](?<description>\w+)[\)])?", RegexOptions.IgnoreCase);
-			Regex ptvNaming = new Regex(@"^(ptv)(?<type>[tnm]?)(?<number>[1-9]?)_(?<position>[lr])?_?(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?)(?:[\(](?<description>\w+)[\)])?", RegexOptions.IgnoreCase);
-			// strict naming rules
-			Regex targetNaming = new Regex(@"^([GCIP]TV)(?<type>[TNM]?)(?<number>[1-9]?)_(?<position>[LR])?_?(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?)(?:[\(](?<description>\w+)[\)])?");
-			// more relaxed naming rules
-			Regex targetNamingLaxed = new Regex(@"^([GCIP]TV)(?<type>[TNM]?)(?<number>[1-9]?)(_(?<position>[LR]))?(_(?<dose>\d{1,2}(?:[.,][0-9]{1,2})?))?(?:[\(](?<description>\w+)[\)])?", RegexOptions.IgnoreCase);
+		
+			// SSM 2016:18 national nomenclature for structures in radiation therapy (ignores the fact that "/" also is ok for "free text" at the end)
+			Regex targetNaming = new Regex(@"^([GCIP]TV)(?<type>[TNM]?)(?<number>[1-9]?)(_(?<position>[LR]))?(_(?<dose>\d{1,2}(?:\.[0-9]{1,2})?))?(?:[\(](?<description>.+)[\)])?", RegexOptions.IgnoreCase);
+			
 			StructureSet ss = plan.StructureSet;
 			// structures included resp excluded in calculation (outside body and not bolus, empty)
 			// sort order type; ptv, ctv, itv, gtv 
@@ -2124,7 +2015,6 @@ namespace VMS.TPS
 			targetStructures.AddRange(ctvStruct);
 			targetStructures.AddRange(itvStruct);
 			targetStructures.AddRange(gtvStruct);
-			
 
 			string message = string.Empty;
 			foreach (var target in targetStructures)
@@ -2139,29 +2029,43 @@ namespace VMS.TPS
 					message += target.Id + ": ändra till strukturkod " + searchString + " (är nu satt som " + target.StructureCode.Code.FirstOrDefault() + ")\n";
 				}
 			}
-			
 
-			// ******************************   testing testing *********************
+			//*************  check of naming against SSM 2016:18 national standards
 
-            foreach (var ptv in ptvStruct)
+			// cant get it to work solely on regex for som reason, need to compare string lengths as well
+			foreach (var target in targetStructures)
+			{
+                if (targetNaming.IsMatch(target.Id) && targetNaming.Match(target.Id).Length == target.Id.Length)
+                {
+					message += target.Id + ": testing: namgivning ok. \n";
+				}
+                else
+                {
+					message += target.Id + ": namgivning verkar inte följa nationell standard. \n";
+				}
+			}
+
+
+				// ******************************   testing testing *********************
+
+				foreach (var ptv in ptvStruct)
             {
 				double doseValue = 0.0;
-                if (ptvNaming.IsMatch(ptv.Id))
+                if (targetNaming.IsMatch(ptv.Id) && string.IsNullOrEmpty(targetNaming.Match(ptv.Id).Groups["dose"].Value) == false && targetNaming.Match(ptv.Id).Length == ptv.Id.Length)
                 {
-                    string doseValueString = ptvNaming.Match(ptv.Id).Groups["dose"].Value;
+                    string doseValueString = targetNaming.Match(ptv.Id).Groups["dose"].Value;
                     if (double.TryParse(doseValueString, out doseValue))
                     {
-                        message += ptv.Id + " testing: dose value = " + doseValue.ToString("0.00") + "Gy.\n";
+                        message += ptv.Id + " testing: dose value = " + doseValue.ToString("0.00") + "Gy.\n\n";
                     }
                 }
                 else
                 {
-					message += ptv.Id + " verkar inte följa namngivningsregler för PTV.\n";
+					message += ptv.Id + " ingen dosnivå i PTV-ID.\n\n";
 				}
 
 				double caud = ptv.MeshGeometry.Bounds.Z;
-				message += "\nTesting: " + ptv.Id + ": starts from slize " + ss.Image.ClosestSlice(caud) + "\n";
-
+				message += "Testing: " + ptv.Id + ": starts from slice " + ss.Image.ClosestSlice(caud) + "\n";
 			}
 
 
@@ -2856,24 +2760,7 @@ namespace VMS.TPS
 			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n\n" + "Estimated delivery time: > " + Math.Round(GetEstimatedTreatmentTime(plan)/60, 1).ToString("0.0") + " min\n" + remarks;
 		}
 
-        private string TMICheckForCouchValues(PlanSetup plan)
-        {
-			string cResults = string.Empty;
-			string beamIdWithCouchValues = string.Empty;
-            foreach (var beam in plan.Beams)
-            {
-              if (!beam.ControlPoints[0].TableTopLateralPosition.ToString().Contains("NaN") || !beam.ControlPoints[0].TableTopLongitudinalPosition.ToString().Contains("NaN") || !beam.ControlPoints[0].TableTopVerticalPosition.ToString().Contains("NaN"))
-                {
-					beamIdWithCouchValues += beam.Id + ", " ;
-				}
-			}
 
-            if (beamIdWithCouchValues.Length > 0)
-            {
-				cResults = "* Please remove couch coordinates from the following fields: " + beamIdWithCouchValues.Substring(0, beamIdWithCouchValues.Length - 2) + ".\n\n";
-            }
-			return cResults;
-        }
 
 
 
