@@ -470,7 +470,6 @@ namespace VMS.TPS
 
 		/// <summary>
 		/// Maximum distance [mm] in x-y-plane from given Dicom coordinate to exitpoint of structure
-		/// TODO: investigate if this could be used instead: VVector[][] contour = structure.GetContoursOnImagePlane(slize_z)
 		/// </summary>
 		/// <param name="structure"></param>
 		/// <param name="isoPos"></param>
@@ -517,6 +516,21 @@ namespace VMS.TPS
 		}
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 		/// <summary>
 		/// Maximum distance [mm] in x-y-plane from given Dicom coordinate to exitpoint of structure
 		/// TODO: investigate if this could be used instead: VVector[][] contour = structure.GetContoursOnImagePlane(slize_z)
@@ -543,8 +557,6 @@ namespace VMS.TPS
 					}
 				}
 			}
-
-
 			return maxDistance;
 		}
 
@@ -943,23 +955,25 @@ namespace VMS.TPS
 			return junkPosZ;
 
 
-			//Delta = 2*x*SSD/iso för att precis toucha…
-			//där x är fältstorlek på iso för den bländare x1 eller x2 som utgör skarven(13.5 cm) och SSD = 100 - maximala längden på vektor som utgår från iso till PTVs yttersta gräns i varje vinkel
-			// hur räkna ut minsta överlapp?
+			//Delta = 2*x*SSD/iso to overlap, where x is jaw position 
+
 
 		}
 
 
 
-
+		// TODO: When calculating FFS check if it is OK to separate delta, and in that case allow smaller deltashift for HFS -> more overlap
+		// public List<VVector> TMISuggestedIsocentersHFS(PlanSetup plan, int maximumDelta = 200;)
 		public List<VVector> TMISuggestedIsocentersHFS(PlanSetup plan)
 		{
 			StructureSet ss = plan.StructureSet;
 			List<VVector> isos = new List<VVector>();
 			double fieldSize = 135.0;
 			int maximumDelta = 200;
-			int minimumDelta = 180;
-			int cranialMargin = 3; // Extra cranial margin for buildup
+			int minimumDelta = 180; // minimum acceptable delta, should probably try to avoid this however
+			int deltaStep = 10; // 10 mm step between investigated delta shifts
+			int cranialMargin = 3; // Extra cranial margin for buildup, should be enough as the isocenter is determined by pos which covers all angles
+			int latShiftLimit = 5; // limit for when shifting the isocenters from origo position in lateral direction
 
 			//Lateral; even mm based on geometric average? only deviate from zero if larger than 5 mm? Or if > 1 cm and delta < 20
 			//    Vertical; even mm or even cm? based on mean of weighted geometric center of lungsTotal and PTV_Total
@@ -994,8 +1008,8 @@ namespace VMS.TPS
 
 
 			// Iteration; check if overlap occurs in the junction regions for all angles, if not decrease delta
-			// and check again until minimmum acceptable delta reached. 
-			for (int delta = maximumDelta; delta >= minimumDelta; delta -= 10)
+			// and check again until minimum acceptable delta reached. 
+			for (int delta = maximumDelta; delta >= minimumDelta; delta -= deltaStep)
 			{
 				isos.Add(firstIsoCran);
 				VVector iso = firstIsoCran;
@@ -1014,7 +1028,7 @@ namespace VMS.TPS
 					junctionPositions.Add(junction);
 				}
 
-				//find maximum distance from each junction position (lng) in isocenter plane (lat, vrt) to structure exitpoint (i.e. minimum SSD)
+				//find maximum distance from each junction position (lng) in isocenter plane (lat, vrt) to structure exitpoint (i.e. minimum SSD for full arc)
 				double maxDistance = 0;
 				for (int i = 0; i < junctionPositions.Count; i++)
 				{
@@ -1025,13 +1039,25 @@ namespace VMS.TPS
 					}
 				}
 
-				// break if condition is satisfied or if minimum acceptable delta is reached whether the condition is met or not
-				if (delta < 2 * fieldSize * (Machine.SID - (maxDistance)) / Machine.SID || delta == 180)
+				// break if condition is satisfied
+				if (delta < 2 * fieldSize * (Machine.SID - (maxDistance)) / Machine.SID)
                 {
 					break;
                 }
                 else
                 {
+					// only adjust lat if delta is less than maximum delta and ptv lateral center is offset by more than determined amount in mm
+					// TODO: should really take max x and min x in junction positions, only distance that really matters
+					if (delta < maximumDelta && Math.Abs(isos[0].x - ptvGeoCenter.x) > latShiftLimit)
+                    {
+						firstIsoCran.x = ptvGeoCenter.x;
+						//TODO; this should be in even mm
+						delta += deltaStep; // try again with same delta, recepy for infinite loop, but should be ok since lateral difference decreases and second condition breaks
+
+					}
+					
+
+
 					isos.Clear();
 					junctionPositions.Clear();
 				}
