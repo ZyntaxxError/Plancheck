@@ -464,6 +464,35 @@ namespace VMS.TPS
 			};
 			return geomCenter;
 		}
+		/// <summary>
+		/// Calculates geometric center of structure in the closest slice to given position
+		/// Note: assumes that the position given is within structure bounds
+		/// </summary>
+		/// <param name="structure"></param>
+		/// <returns></returns>
+		public static VVector GeometricCenterClosestSlice(this Structure structure, StructureSet ss, VVector pos)
+		{
+			Image image = ss.Image;
+			int slice = image.ClosestSlice(pos);
+			VVector[][] contour = structure.GetContoursOnImagePlane(slice);
+			// remake the jagged array to 1-D List
+			List<VVector> flattenPoints = new List<VVector>();
+			foreach (var arr in contour)
+			{
+				foreach (var point in arr)
+				{
+					flattenPoints.Add(point);
+				}
+			}
+
+            VVector geomCenter = new VVector
+            {
+                x = (flattenPoints.OrderBy(p => p.x).First().x + flattenPoints.OrderBy(p => p.x).Last().x) / 2,
+                y = (flattenPoints.OrderBy(p => p.y).First().y + flattenPoints.OrderBy(p => p.y).Last().y) / 2,
+                z = (flattenPoints.OrderBy(p => p.z).First().z + flattenPoints.OrderBy(p => p.z).Last().z) / 2
+            };
+            return geomCenter;
+		}
 
 
 
@@ -938,9 +967,9 @@ namespace VMS.TPS
 
 			string recom = "\n\n Suggested isocenters: (x,y,z) \n";
 
-            foreach (var iso in tmiRecomEclipse)
+            foreach (var i in tmiRecomEclipse)
             {
-				recom += (iso.x / 10).ToString("0.0") + "\t" + (iso.y / 10).ToString("0.0") + "\t" + (iso.z / 10).ToString("0.0") + " \n";
+				recom += (i.x / 10).ToString("0.000") + "\t" + (i.y / 10).ToString("0.0") + "\t" + (i.z / 10).ToString("0.0") + " \n";
 			}
 
 			// Recommend position for Z_PTV5
@@ -972,7 +1001,8 @@ namespace VMS.TPS
 			int maximumDelta = 200;
 			int minimumDelta = 180; // minimum acceptable delta, should probably try to avoid this however
 			int deltaStep = 10; // 10 mm step between investigated delta shifts
-			int cranialMargin = 3; // Extra cranial margin for buildup, should be enough as the isocenter is determined by pos which covers all angles
+			int cranialMargin = 3; // Extra cranial margin for buildup, should be enough as the isocenter is determined by the z-position which covers all angles
+			// and are rounded up to nearest cm from user origin
 			int latShiftLimit = 5; // limit for when shifting the isocenters from origo position in lateral direction
 
 			//Lateral; even mm based on geometric average? only deviate from zero if larger than 5 mm? Or if > 1 cm and delta < 20
@@ -992,7 +1022,7 @@ namespace VMS.TPS
 			
 			firstIsoCran.y = (lungGeoCenter.y * 60 + ptvGeoCenter.y * 40) / 100;
 
-			firstIsoCran = ZposCoverAllAngles(ptvTotal, firstIsoCran, 135, true);
+			firstIsoCran = ZposCoverAllAngles(ptvTotal, firstIsoCran, fieldSize, true);
 			firstIsoCran.z += cranialMargin;
 
 			Image image = plan.StructureSet.Image;
@@ -1001,11 +1031,7 @@ namespace VMS.TPS
 			eclipseRound.z = Math.Ceiling(eclipseRound.z / 10) * 10;
 			firstIsoCran = image.UserToDicom(eclipseRound, plan);
 
-
-
-
 			List<VVector> junctionPositions = new List<VVector>(); // TODO: assumes all field sizes the same
-
 
 			// Iteration; check if overlap occurs in the junction regions for all angles, if not decrease delta
 			// and check again until minimum acceptable delta reached. 
@@ -1028,6 +1054,38 @@ namespace VMS.TPS
 					junctionPositions.Add(junction);
 				}
 
+
+				// check if ptv lateral center in junctions (or closest slice) and in lungsTotal is displaced relative user origin
+				// ignore first junction as this might be located in neck/shoulder area, instead use first iso head. If shift larger than set limit; set new lat pos
+				double optLat = (lungGeoCenter.x + ptvTotal.GeometricCenterClosestSlice(ss, isos[0]).x) / 2;
+				for (int i = 1; i < junctionPositions.Count; i++)
+                {
+					optLat += ptvTotal.GeometricCenterClosestSlice(ss, junctionPositions[i]).x;
+				}
+				optLat /= junctionPositions.Count;
+
+                if (Math.Abs(optLat - image.UserOrigin.x) > latShiftLimit)
+				{
+					firstIsoCran.x = optLat;
+					VVector eRound = image.DicomToUser(firstIsoCran, plan);
+					eRound.x = (int)Math.Round(eRound.x, 0);
+
+                    for (int i = 0; i < isos.Count; i++)
+                    {
+						VVector temp = isos[i];
+						temp.x = image.UserToDicom(eRound, plan).x;
+						isos[i] = temp;
+					}
+
+					for (int i = 0; i < junctionPositions.Count; i++)
+					{
+						VVector temp = junctionPositions[i];
+						temp.x = image.UserToDicom(eRound, plan).x;
+						junctionPositions[i] = temp;
+					}
+				}
+
+
 				//find maximum distance from each junction position (lng) in isocenter plane (lat, vrt) to structure exitpoint (i.e. minimum SSD for full arc)
 				double maxDistance = 0;
 				for (int i = 0; i < junctionPositions.Count; i++)
@@ -1046,32 +1104,11 @@ namespace VMS.TPS
                 }
                 else
                 {
-					// only adjust lat if delta is less than maximum delta and ptv lateral center is offset by more than determined amount in mm
-					// TODO: should really take max x and min x in junction positions, only distance that really matters
-					if (delta < maximumDelta && Math.Abs(isos[0].x - ptvGeoCenter.x) > latShiftLimit)
-                    {
-						firstIsoCran.x = ptvGeoCenter.x;
-						//TODO; this should be in even mm
-						delta += deltaStep; // try again with same delta, recepy for infinite loop, but should be ok since lateral difference decreases and second condition breaks
-
-					}
-					
-
-
+	
 					isos.Clear();
 					junctionPositions.Clear();
 				}
 			}
-
-
-
-			//// only adjust lat if delta < 19 cm and body 
-			//if (Math.Abs(isos[0].x - bodyGeoCenter.x) > 10)
-			//         {
-			//	lat = bodyGeoCenter.x;
-			//	//isos[0].x = bodyGeoCenter.x;
-			//}
-
 			return isos;
         }
 
