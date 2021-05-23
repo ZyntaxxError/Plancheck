@@ -31,7 +31,7 @@ namespace VMS.TPS
 {
 
 	public static class Conversion
-    {
+	{
 		public enum Scale
 		{
 			IEC61217,
@@ -39,6 +39,27 @@ namespace VMS.TPS
 			Eclipse,
 			Dicom
 		}
+
+		public enum UnitLength
+		{
+			mm = 1,
+			cm = 10,
+			dm = 100,
+			m = 1000
+		}
+
+		public enum Direction
+		{
+			Cranial,
+			Caudal,
+			None
+		}
+
+
+
+
+
+
 
 		public static double ScaleConv(double val, Scale fromScale, Scale toScale, Machine.Axis axis, bool ExtendedFlag = false)
         {
@@ -142,6 +163,9 @@ namespace VMS.TPS
 			x1,
 			x2
 		}
+
+
+
 
 
     public static readonly Dictionary<string, int> DoseRates = new Dictionary<string, int>
@@ -521,7 +545,6 @@ namespace VMS.TPS
 				var testIntersect = structure.GetSegmentProfile(pos, endPoint, new BitArray(samples)).Where(s => s.Value == true);
 				if (testIntersect.Any())
 				{
-					//SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(pos, endPoint, new BitArray(samples)).Where(s => s.Value == true).Last();
 					SegmentProfilePoint structureExitPoint = testIntersect.Last();
 
 					//convert from Type Point to VVector, may be unneccesary unless position is of interest
@@ -533,7 +556,6 @@ namespace VMS.TPS
 					};
 
 					double distance = Math.Sqrt(Math.Pow(pos.x - exitPos.x, 2) + Math.Pow(pos.y - exitPos.y, 2));
-
 					if (distance > maxDistance)
 					{
 						maxDistance = distance;
@@ -789,12 +811,18 @@ namespace VMS.TPS
 		//TODO: compare body bounds with image size and check if margin is enough
 		// assuming we have two CT, BODY is contoured on both, possible to calculate total length; detemining factor for iso distances and field sizes
 		// Dicom coordinates last iso HFS to FFS-CT?
-		//when replacing the sixth iso, first iso should be placed to cover: junctionpos + 3.5 + 20 - calculated delta (18-20 cm)) : nope
-		// nope junction position for structure in max x-y distance based on the divergens of the chosen field size
-		// already have this! 
-		// ZisoFFS1 = junctionpos5_Z -fieldsize + maxdistance*fieldsize/iso
-		// Ex: junctionpoz5Z = 0, Fieldsize = 13.5 maxdistance = 25;    0 - 13.5 + 25 * 13.5 / 100 = -10.1 (dvs ungefär halva delta)
-		// wtf... if we use field size 28 (14), can use the same iso as the fake one in HFS... 
+
+
+		//TODO: error handling; check for prereq: Structures needed etc
+		// for FFS AND Base dose plan: approved registration with only translations (registration direction?)
+		// check naming of image and structure set
+
+
+
+
+		// Optimizer checks for overlapping structures with support structures; ex: bolus and couch
+
+
 
 
 		//     Structure structure = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();
@@ -821,12 +849,18 @@ namespace VMS.TPS
 			string junkPosZ = string.Empty;
 			// get list of isocenter positions
 			List<VVector> isos = TMIIsocentersInPlan(plan);
-			//List<VVector> isos = TMISuggestedIsocentersHFS(plan.StructureSet);
+
+			
+			
+			
+
 			// debug
 			for (int i = 0; i < isos.Count; i++)
 			{
 				VVector junkEclipse = image.DicomToUser(isos[i], plan);
 				junkPosZ += "iso " + i + ":\t" + (junkEclipse.z / 10).ToString("0.0") + "\n";
+				//public IEnumerable<Registration> Registrations { get; }
+
 			}
 
 			if (isos.Count == 1)
@@ -877,7 +911,7 @@ namespace VMS.TPS
 
 
 
-				// rotate around the structure with origo in junktion and find the maximum distance
+				// rotate around the structure with origo in junction and find the maximum distance
 				for (int angle = 0; angle < 360; angle++)
 				{
 					double x = junction.x + searchRadius * Math.Cos(angle * Math.PI / 180);
@@ -887,11 +921,12 @@ namespace VMS.TPS
 					endPoint.y = y;
 
 
+					// condition if segment profile don't intersect with the structure. 
 					var testIntersect = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(200)).Where(s => s.Value == true);
 					if (testIntersect.Count() > 0)
 					{
 
-						// TODO: add condition if segment profile don't intersect with the structure. Use of LastOrDefault uncertain what Default is 
+						
 						SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(200)).Where(s => s.Value == true).Last();
 
 						//convert from Type Point to VVector
@@ -952,6 +987,8 @@ namespace VMS.TPS
             {
 				tmiRecom = TMISuggestedIsocentersFFS(plan);
 			}
+
+
 			TMIcheckIfCropped(plan);
 
 
@@ -968,7 +1005,7 @@ namespace VMS.TPS
 
             foreach (var i in tmiRecomEclipse)
             {
-				recom += (i.x / 10).ToString("0.000") + "\t" + (i.y / 10).ToString("0.0") + "\t" + (i.z / 10).ToString("0.0") + " \n";
+				recom += (i.x / 10).ToString("0.0") + "\t" + (i.y / 10).ToString("0.0") + "\t" + (i.z / 10).ToString("0.0") + " \n";
 			}
 
 			// Recommend position for Z_PTV5
@@ -1000,7 +1037,7 @@ public PlanSetup CopyPlanSetup(
 
 
 		 */
-
+		// TODO check position of couch and check how algorithms handles overlap of couch with body, PTV and bolus; OK optimizer checks this
 		// marker on HFS "Z_92" 92 cm below cranial part of necksupport intendention
 		// register image with CX DP FFS, transfer structure to registered image, approve registration and marker
 		// script checks minimum delta needed for HFS, calculates position of last iso HFS in "CX DP FFS" using marker as reference 
@@ -1011,11 +1048,12 @@ public PlanSetup CopyPlanSetup(
 		// operlap structures in border between HFS and FFS to 
 
 
-		// if minimum overlap > 4 * 1 cm -> decrease delta for hfs
+		// if minimum overlap > 4 * 1 cm && delta == 20 -> decrease delta for hfs (check that we don't add isocenters in FFS)
 		// public List<VVector> TMISuggestedIsocentersHFS(PlanSetup plan, int maximumDelta = 200;)
 		public List<VVector> TMISuggestedIsocentersHFS(PlanSetup plan)
 		{
 			StructureSet ss = plan.StructureSet;
+			Image image = plan.StructureSet.Image;
 			List<VVector> isos = new List<VVector>();
 			double fieldSize = 135.0;
 			int maximumDelta = 200;
@@ -1032,24 +1070,21 @@ public PlanSetup CopyPlanSetup(
 			Structure lungTotal = ss.Structures.Where(s => s.Id == "LungTotal" || s.Id == "Lung Total").SingleOrDefault();  // TODO: better to take dicom type
 			VVector lungGeoCenter = lungTotal.GeometricCenter();
 
-
-			// Set temporary position for first cranial isocenter
+			// Set temporary position for first cranial isocenter as user origin
 			VVector firstIsoCran = ss.Image.UserOrigin;
 			
-			// Vrt is determined by geometric center of lungs and PTV_Total
+			// Vrt resonable position is estimated by weighting geometric center of lungs and PTV_Total
 			firstIsoCran.y = (lungGeoCenter.y * 60 + ptvGeoCenter.y * 40) / 100;
 
 			// Long position for first isocenter is determined by the z value where the given field size covers ptv in all angles
 			firstIsoCran = ZposCoverAllAngles(ptvTotal, firstIsoCran, fieldSize, true);
 			firstIsoCran.z += cranialMargin;
-			Image image = plan.StructureSet.Image;
-			VVector eclipseRound = image.DicomToUser(firstIsoCran, plan);
-			eclipseRound.y = Math.Round(eclipseRound.y / 10, 0) * 10;
-			eclipseRound.z = (int)Math.Ceiling(eclipseRound.z);
-			firstIsoCran = image.UserToDicom(eclipseRound, plan);
 
+			// Round vrt to nearest cm and long to nearest mm from user origo (lat is per def zero) 
+			firstIsoCran.y = RoundToUser(plan, firstIsoCran, Conversion.UnitLength.cm).y;
+			firstIsoCran.z = RoundToUser(plan, firstIsoCran).z;
 
-			List<VVector> junctionPositions = new List<VVector>(); // TODO: assumes all field sizes the same
+			List<VVector> junctionPositions = new List<VVector>();
 
 			// Iteration; check if overlap occurs in the junction regions and their vicinity (+/- 5 mm) for all angles, if not decrease delta
 			// and check again until minimum acceptable delta reached. 
@@ -1072,58 +1107,49 @@ public PlanSetup CopyPlanSetup(
 					junctionPositions.Add(junction);
 				}
 
-
-				// check if ptv in junctions (closest slice) and in lungsTotal is displaced relative user origin in the lateral direction
-				// Ignore first junction as this might be located in neck/shoulder area, replace it with first iso. If shift is larger than the set limit; set new lat pos
-				// TODO: First iso should still be ok even with lat shift (calculate it!)
-				double optLat = (lungGeoCenter.x + ptvTotal.GeometricCenterClosestSlice(ss, isos[0]).x) / 2;
+				// check if ptv in junctions (closest slice) and lungsTotal is displaced relative user origin in the lateral direction
+				// Ignore first junction as this might be located in neck/shoulder area where lat might shift rapidly, replace it with first iso.
+				// If shift is larger than the set limit; set new lat pos.
+				// First iso long should still be ok even with lat shift of a couple of cm.
+				double optLat = lungGeoCenter.x + ptvTotal.GeometricCenterClosestSlice(ss, isos[0]).x;
 				for (int i = 1; i < junctionPositions.Count; i++)
                 {
 					optLat += ptvTotal.GeometricCenterClosestSlice(ss, junctionPositions[i]).x;
 				}
-				optLat /= junctionPositions.Count;
+				optLat /= (junctionPositions.Count + 2);
+				optLat = (int)Math.Round(optLat, 0);
 
                 if (Math.Abs(optLat - image.UserOrigin.x) > latShiftLimit)
 				{
-					firstIsoCran.x = optLat;
-					VVector eRound = image.DicomToUser(firstIsoCran, plan);
-					eRound.x = (int)Math.Round(eRound.x, 0);
-
                     for (int i = 0; i < isos.Count; i++)
                     {
 						VVector temp = isos[i];
-						temp.x = image.UserToDicom(eRound, plan).x;
+						temp.x = optLat;
 						isos[i] = temp;
 					}
 
 					for (int i = 0; i < junctionPositions.Count; i++)
 					{
 						VVector temp = junctionPositions[i];
-						temp.x = image.UserToDicom(eRound, plan).x;
+						temp.x = optLat;
 						junctionPositions[i] = temp;
 					}
 				}
 
-
-				//find maximum distance from each junction position (lng) and its vicinity in isocenter plane (lat, vrt) to structure exitpoint (i.e. minimum SSD for full arc)
+				//find maximum distance from each junction position (lng) in isocenter plane (lat, vrt) to structure exitpoint (i.e. minimum SSD for full arc)
 				double maxDistance = 0;
-                for (int zRange = -5; zRange == 5; zRange+=5)
-                {
-					for (int i = 0; i < junctionPositions.Count; i++)
+				for (int i = 0; i < junctionPositions.Count; i++)
+				{
+					VVector pos = junctionPositions[i];
+					double dist = ptvTotal.MaxDistToStructureExit(pos);
+					if (dist > maxDistance)
 					{
-						VVector pos = junctionPositions[i];
-						pos.z += zRange; 
-						double dist = ptvTotal.MaxDistToStructureExit(pos);
-						if (dist > maxDistance)
-						{
-							maxDistance = dist;
-						}
+						maxDistance = dist;
 					}
 				}
 
-
 				// break if condition is satisfied, otherwise reduce delta and check again
-				if (delta + minOverlap < 2 * fieldSize * (Machine.SID - (maxDistance)) / Machine.SID)
+				if (delta + minOverlap < 2 * fieldSize * (Machine.SID - (maxDistance)) / Machine.SID || delta == minimumDelta)
                 {
 					break;
                 }
@@ -1139,6 +1165,29 @@ public PlanSetup CopyPlanSetup(
 
 
 
+
+
+		/// <summary>
+		/// Rounds a dicom position to nearest even unit in the user coordinate system (i.e relative to user origin)
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <param name="pos"></param>
+		/// <param name="unit"></param>
+		/// <returns>position in dicom coordinates</returns>
+		public VVector RoundToUser(PlanSetup plan, VVector pos, Conversion.UnitLength unit = Conversion.UnitLength.mm)
+        {
+
+			int unitConv = (int)unit;
+			Image image = plan.StructureSet.Image;
+			VVector eclipseRound = image.DicomToUser(pos, plan);
+			eclipseRound.x = (int)Math.Round(eclipseRound.x / unitConv, 0) * unitConv;
+			eclipseRound.y = (int)Math.Round(eclipseRound.y / unitConv, 0) * unitConv;
+			eclipseRound.z = (int)Math.Round(eclipseRound.z / unitConv, 0) * unitConv;
+
+			return image.UserToDicom(eclipseRound, plan);
+		}
+
+		// TODO: what happens if enough with image in HFS
 		// prereq: user origo placed in iso 5 from HFS-plan
 		// can use coordinates from Base dose HFS, as the isocenters may not have been placed according to suggestion... 
 		// TODO: Special case that need to be handled; short patient, enough with 1 isocenters, well... no need for script in that case if not used for auto plan
@@ -1149,11 +1198,11 @@ public PlanSetup CopyPlanSetup(
 			double fieldSizeFFS = 140.0;
 			double fieldSizeHFS = 135.0;
 			int maxDeltaHFS = 200;
-			int maxDeltaFFS = 250;
+			int maxDeltaFFS = 240;
 			int minDeltaFFS = 180;
 			int deltaStep = 10; // 10 mm step between investigated delta shifts
 			Image image = ss.Image;
-			int caudalMargin = 3; // Extra caudal margin for buildup, this is minimum but almost always increases as calulated delta is rounded up to nearest cm
+			int caudalMargin = 1; // Extra caudal margin for buildup, this is minimum but almost always increases as calulated delta is rounded up to nearest cm
 			int minOverlap = 0;  // mm overlap where minimum occurs, i.e. maximum distance from isocenter plane 
 
 			Structure ptvTotal = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
@@ -1164,59 +1213,47 @@ public PlanSetup CopyPlanSetup(
 			// Determine position of first iso FFS separately as field size for HFS is smaller which means junction in different place
 			// Delta coordinates will be different and will be sent from origo, want reassuring overlap so calculate with field size from HFS
 			VVector firstIsoFFS = lastIsoHFS;
-
-			string debug = string.Empty;
-
-			List<VVector> junctionPositions = new List<VVector>();
-
 			for (int delta = maxDeltaHFS; delta >= minDeltaFFS; delta -= deltaStep)
 			{
-
 				firstIsoFFS.z = lastIsoHFS.z - delta;
 				VVector junction = lastIsoHFS;
 				junction.z = (firstIsoFFS.z + lastIsoHFS.z) / 2;
-
-				//find maximum distance from each junction position (lng) in isocenter plane (lat, vrt) to structure exitpoint (i.e. minimum SSD)
 				double maxDistance = ptvTotal.MaxDistToStructureExit(junction);
 
-				// break if condition is satisfied or if minimum acceptable delta is reached whether the condition is met or not
 				if (delta + minOverlap  < 2 * fieldSizeHFS * (Machine.SID - (maxDistance)) / Machine.SID || delta == minDeltaFFS)
 				{
 					break;
 				}
 			}
 
-
-
-			// Preliminary position for last iso FFS is determined by scanning for the position where the given field size covers all angles
-			VVector lastIsoFFS = firstIsoFFS;
-			lastIsoFFS = ZposCoverAllAngles(ptvTotal, lastIsoFFS, fieldSizeFFS, false);
+			// Preliminary position for last iso FFS is determined by scanning for the position where the given field size covers the target in all angles
+			VVector lastIsoFFS = ZposCoverAllAngles(ptvTotal, firstIsoFFS, fieldSizeFFS, false);
 			lastIsoFFS.z -= caudalMargin;
-
 
 			// start value for number of isos, i.e. minimum number of isocenters using maximum delta
 			int minNrOfIsos = (int)Math.Ceiling(Math.Abs(firstIsoFFS.z - lastIsoFFS.z) / maxDeltaFFS);
 
+			List<VVector> junctionPositions = new List<VVector>();
 
 			// Iteration; start with maximum delta, calculate nr of isos necessary, check if overlap occurs in the 
 			//junction regions for all angles, if not; increase nr of isos and check again until minimmum acceptable delta reached. 
-			for (int nriso = minNrOfIsos; nriso < 8; nriso++)
+			for (int nriso = minNrOfIsos; nriso <= 8; nriso++)
 			{
 				isos.Add(firstIsoFFS);
 				VVector iso = firstIsoFFS;
 
 
-				// change delta to even cm based on number of isos
-				//int delta = (nriso / (int)(Math.Ceiling((Math.Abs(firstIsoFFS.z - lastIsoFFS.z))) / 10) * 10);
-				int delta = (int)Math.Ceiling((Math.Abs(firstIsoFFS.z - lastIsoFFS.z) /  nriso ) / 10) * 10;
+				// change delta to even cm based on number of isos and back to mm for calculation
+				double firstToLastIsoMm = Math.Abs(firstIsoFFS.z - lastIsoFFS.z); // mm
+				int delta = (int)Math.Ceiling(firstToLastIsoMm /(10 * nriso)) * 10;
 
-				for (int i = 1; i == nriso; i++)
+				//MessageBox.Show("FirstToLastIsoMM: " + firstToLastIsoMm + "\tDelta  :"  + delta + "\tNr of iso: " + nriso + "\n");
+								
+				for (int i = 1; i <= nriso; i++)
 				{
 					iso.z -= delta;
 					isos.Add(iso);
 				}
-
-
 
 				// preliminary isocenters based on first isocenter and delta shift, make list of junctionpositions to check overlap
 				VVector junction = new VVector();
@@ -1238,8 +1275,8 @@ public PlanSetup CopyPlanSetup(
 					}
 				}
 
-				// break if condition is satisfied or if minimum acceptable delta is reached whether the condition is met or not
-				if (delta + minOverlap < 2 * fieldSizeFFS * (Machine.SID - (maxDistance)) / Machine.SID || delta == 180)
+				// break if condition is satisfied or if maximum acceptable isos is reached whether the condition is met or not
+				if (delta + minOverlap < 2 * fieldSizeFFS * (Machine.SID - (maxDistance)) / Machine.SID || nriso == 8)
 				{
 					break;
 				}
@@ -1250,9 +1287,7 @@ public PlanSetup CopyPlanSetup(
 				}
 			}
 
-
 			return isos;
-
 		}
 
 
@@ -1263,7 +1298,7 @@ public PlanSetup CopyPlanSetup(
 			Image image = ss.Image;
 
 			Structure ptvTotal = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
-			Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type
+			Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type, can only have one structure with dicom type BODY (?)
 																						  //Bolus is unfortunately not a structure, can not check it the same way. However, if PTV is cropped, then it's likely the bolus is as well.
 
 			VVector imageOrigin = image.Origin;
@@ -1320,7 +1355,7 @@ public PlanSetup CopyPlanSetup(
 				message += "Caud:\t" + (-(doseCaud - ptvCaud)).ToString("0") + " mm.\n";
 				message += "Left:\t" + (doseLeft - ptvLeft).ToString("0") + " mm.\n";
 				message += "Right:\t" + (-(doseRight - ptvRight)).ToString("0") + " mm.\n";
-				message += "Dose:\t" + (doseDors - ptvDors).ToString("0") + " mm.\n";
+				message += "Dors:\t" + (doseDors - ptvDors).ToString("0") + " mm.\n";
 				message += "Vent:\t" + (-(doseVent - ptvVent)).ToString("0") + " mm.\n";
 			}
 
@@ -1435,12 +1470,14 @@ public PlanSetup CopyPlanSetup(
 			double searchRadius = structure.MaxDistToBoundsExit(iso);
 			double zOffsetIso = fieldSize;
 			double zOffsetEnd = fieldSize * (Machine.SID - searchRadius) / Machine.SID;
+			int startScanInStructure = 5; // offset value for start scanning; mm before structure end in long
+			int maxScanDist = 200; // high value needed if offset in transverce plane large
 			VVector optimalPosDicom = iso;
 			double anglesIntersecting;
             if (cranial)
             {
-				optimalPosDicom.z = structure.MeshGeometry.Positions.Max(p => p.Z) - 10 - fieldSize;
-				for (int i = 0; i < 50; i++)
+				optimalPosDicom.z = structure.MeshGeometry.Positions.Max(p => p.Z) - startScanInStructure - fieldSize;
+				for (int i = 0; i < maxScanDist; i++)
 				{
 					anglesIntersecting = NrAnglesIntersectStructure(structure, optimalPosDicom, searchRadius, zOffsetIso + i, zOffsetEnd + i);
 					if (anglesIntersecting == 0)
@@ -1452,8 +1489,8 @@ public PlanSetup CopyPlanSetup(
             }
             else // caudal
             {
-				optimalPosDicom.z = structure.MeshGeometry.Positions.Min(p => p.Z) + 10 + fieldSize;
-				for (int i = 0; i < 50; i++)
+				optimalPosDicom.z = structure.MeshGeometry.Positions.Min(p => p.Z) + startScanInStructure + fieldSize;
+				for (int i = 0; i < maxScanDist; i++)
 				{
 					anglesIntersecting = NrAnglesIntersectStructure(structure, optimalPosDicom, searchRadius, -zOffsetIso - i, -zOffsetEnd - i);
 					if (anglesIntersecting == 0)
@@ -1465,7 +1502,6 @@ public PlanSetup CopyPlanSetup(
 			}
 			return optimalPosDicom;
 		}
-
 
 
 		/// <summary>
@@ -1501,6 +1537,7 @@ public PlanSetup CopyPlanSetup(
 			return nrAnglesIntersecting;
 		}
 
+
 		/// <summary>
 		/// Returns a list of VVectors representing all the isocenters found in plan ordered by iso position z, then x, then y
 		/// </summary>
@@ -1508,7 +1545,6 @@ public PlanSetup CopyPlanSetup(
 		/// <returns></returns>
 		public List<VVector> TMIIsocentersInPlan(PlanSetup plan)
         {
-			// make list of isocenter positions
 			List<VVector> isos = new List<VVector>();
 			foreach (var beam in plan.Beams.OrderByDescending(b => b.IsocenterPosition.z).ThenBy(b => b.IsocenterPosition.x).ThenBy(b => b.IsocenterPosition.y))
 			{
