@@ -62,72 +62,72 @@ namespace VMS.TPS
 
 
 		public static double ScaleConv(double val, Scale fromScale, Scale toScale, Machine.Axis axis, bool ExtendedFlag = false)
-        {
-            switch (axis)
-            {
-                case Machine.Axis.Gantry:
-                    switch (fromScale)
-                    {
-                        case Scale.IEC61217:
-                            switch (toScale)
-                            {
-                                case Scale.VarianIEC:
-                                    if (val >= 0 && val <= 180 && ExtendedFlag == false )
-                                    {
+		{
+			switch (axis)
+			{
+				case Machine.Axis.Gantry:
+					switch (fromScale)
+					{
+						case Scale.IEC61217:
+							switch (toScale)
+							{
+								case Scale.VarianIEC:
+									if (val >= 0 && val <= 180 && ExtendedFlag == false)
+									{
 										val += 180;
-                                    }
-                                    else
-                                    {
+									}
+									else
+									{
 										val -= 180;
-                                    }
-                                    break;
-                                case Scale.Eclipse:
-                                    break;
-                                case Scale.Dicom:
-                                    break;
-                                default:
-                                    break;
-                            }
-                            break;
-                        case Scale.VarianIEC:
-                            break;
-                        case Scale.Eclipse:
-                            break;
-                        case Scale.Dicom:
-                            break;
-                        default:
-                            break;
-                    }
+									}
+									break;
+								case Scale.Eclipse:
+									break;
+								case Scale.Dicom:
+									break;
+								default:
+									break;
+							}
+							break;
+						case Scale.VarianIEC:
+							break;
+						case Scale.Eclipse:
+							break;
+						case Scale.Dicom:
+							break;
+						default:
+							break;
+					}
 
-                    break;
-                case Machine.Axis.Coll:
-                    break;
-                case Machine.Axis.CouchVrt:
-                    break;
-                case Machine.Axis.CouchLng:
-                    break;
-                case Machine.Axis.CouchLat:
-                    break;
-                case Machine.Axis.CouchRtn:
-                    break;
-                case Machine.Axis.CouchPit:
-                    break;
-                case Machine.Axis.CouchRol:
-                    break;
-                case Machine.Axis.y1:
-                    break;
-                case Machine.Axis.y2:
-                    break;
-                case Machine.Axis.x1:
-                    break;
-                case Machine.Axis.x2:
-                    break;
-                default:
-                    break;
-            }
+					break;
+				case Machine.Axis.Coll:
+					break;
+				case Machine.Axis.CouchVrt:
+					break;
+				case Machine.Axis.CouchLng:
+					break;
+				case Machine.Axis.CouchLat:
+					break;
+				case Machine.Axis.CouchRtn:
+					break;
+				case Machine.Axis.CouchPit:
+					break;
+				case Machine.Axis.CouchRol:
+					break;
+				case Machine.Axis.y1:
+					break;
+				case Machine.Axis.y2:
+					break;
+				case Machine.Axis.x1:
+					break;
+				case Machine.Axis.x2:
+					break;
+				default:
+					break;
+			}
 
-            return val;
-        }
+			return val;
+		}
 	}
 
 
@@ -135,16 +135,16 @@ namespace VMS.TPS
 	public static class Machine
 	{
 		public const int SID = 1000;  // Source-isocenter-distance in mm
-		// speeds and accelerations (except Collimator) are mean values from trajectory logs, parameters vary somewhat depending on acceleration or deceleration, gravity etc 
-		// but should be close enough to calculate a fair estimation of beam-on time. Collimator speed taken from TrueBeam Specs, collimator acceleration is arbitrarily chosen.
-		public const int GantryMaxSpeed = 6;	// deg/s
-		public const int CollMaxSpeed = 15;		// deg/s,  2.5 RPM with no accessory (1 RPM with accessory)
+									  // speeds and accelerations (except Collimator) are mean values from trajectory logs, parameters vary somewhat depending on acceleration or deceleration, gravity etc 
+									  // but should be close enough to calculate a fair estimation of beam-on time. Collimator speed taken from TrueBeam Specs, collimator acceleration is arbitrarily chosen.
+		public const int GantryMaxSpeed = 6;    // deg/s
+		public const int CollMaxSpeed = 15;     // deg/s,  2.5 RPM with no accessory (1 RPM with accessory)
 		public const float JawYMaxSpeed = 22.5f;
 		public const float JawXMaxSpeed = 22.5f;
-		public const int GantryMaxAcc = 16;		// deg/s^2 
-		public const int CollMaxAcc = 60;		// TODO: TBD
-		public const int JawYMaxAcc = 50;		// mm/s^2
-		public const int JawXMaxAcc = 160;		// mm/s^2
+		public const int GantryMaxAcc = 16;     // deg/s^2 
+		public const int CollMaxAcc = 60;       // TODO: TBD
+		public const int JawYMaxAcc = 50;       // mm/s^2
+		public const int JawXMaxAcc = 160;      // mm/s^2
 
 		public enum Axis
 		{
@@ -168,7 +168,7 @@ namespace VMS.TPS
 
 
 
-    public static readonly Dictionary<string, int> DoseRates = new Dictionary<string, int>
+		public static readonly Dictionary<string, int> DoseRates = new Dictionary<string, int>
 			{
 				{ "6X", 600 },
 				{ "15X", 600 },
@@ -181,7 +181,7 @@ namespace VMS.TPS
 	}
 
 	public static class PlanExtensions
-    {
+	{
 		public static bool AutomationPrerequisites(this PlanSetup plan)
 		{
 			//TODO: Missing check for same accessories for all beams
@@ -263,11 +263,11 @@ namespace VMS.TPS
 		}
 	}
 
-		public static class BeamExtensions  
+	public static class BeamExtensions
 	{
 
 		public static bool MaxDoseRateUsed(this Beam beam)
-        {
+		{
 			int maxDoseRate = 0;
 			if (!Machine.DoseRates.TryGetValue(beam.EnergyModeDisplayName, out maxDoseRate))
 			{
@@ -275,15 +275,15 @@ namespace VMS.TPS
 				return true; // Ugly code to prevent it from crashing, fix this
 			}
 
-            if (beam.DoseRate == maxDoseRate)
-            {
+			if (beam.DoseRate == maxDoseRate)
+			{
 				return true;
-            }
-            else
-            {
+			}
+			else
+			{
 				return false;
-            }
-        }
+			}
+		}
 
 
 		/// <summary>
@@ -383,8 +383,8 @@ namespace VMS.TPS
 				//debug list of control points for comparison with trajectory logs.
 				controlPointList.AppendLine(i + "\t" + cpTime[i].ToString("0.00") + "\t" + "\tGspeed:" + gantrySpeed[i].ToString("0.0"));
 				for (int j = 0; j < nrOfJaws; j++)
-				 {
-					 controlPointList.Append((jawSpeed[i, j]/10).ToString("0.0") + "\t"); // Convert to cm/s to compare with log files
+				{
+					controlPointList.Append((jawSpeed[i, j] / 10).ToString("0.0") + "\t"); // Convert to cm/s to compare with log files
 				}
 				doseRate[i] = deltaMU * 60 / cpTime[i];     // calculation of doserate to compare with log files MU/min
 				controlPointList.Append("\t" + doseRate[i]);
@@ -428,7 +428,7 @@ namespace VMS.TPS
 			int movementDirection = (int)(s / Math.Abs(s));
 
 			vMax *= movementDirection;
-			a *= movementDirection;   
+			a *= movementDirection;
 
 			// need to solve a second degree equation to get time
 			double rot = Math.Sqrt((v0 / a) * (v0 / a) + 2 * s / a);
@@ -471,7 +471,7 @@ namespace VMS.TPS
 	}
 
 	public static class StructureExtensions
-    {
+	{
 		/// <summary>
 		/// Calculates geometric center of structure bounds in Dicom coordinates
 		/// TODO: Check if this is dependent on patient orientation, probably not, but check it anyway
@@ -508,13 +508,13 @@ namespace VMS.TPS
 				}
 			}
 
-            VVector geomCenter = new VVector
-            {
-                x = (flattenPoints.OrderBy(p => p.x).First().x + flattenPoints.OrderBy(p => p.x).Last().x) / 2,
-                y = (flattenPoints.OrderBy(p => p.y).First().y + flattenPoints.OrderBy(p => p.y).Last().y) / 2,
-                z = (flattenPoints.OrderBy(p => p.z).First().z + flattenPoints.OrderBy(p => p.z).Last().z) / 2
-            };
-            return geomCenter;
+			VVector geomCenter = new VVector
+			{
+				x = (flattenPoints.OrderBy(p => p.x).First().x + flattenPoints.OrderBy(p => p.x).Last().x) / 2,
+				y = (flattenPoints.OrderBy(p => p.y).First().y + flattenPoints.OrderBy(p => p.y).Last().y) / 2,
+				z = (flattenPoints.OrderBy(p => p.z).First().z + flattenPoints.OrderBy(p => p.z).Last().z) / 2
+			};
+			return geomCenter;
 		}
 
 
@@ -596,9 +596,9 @@ namespace VMS.TPS
 			VVector[][] contour = structure.GetContoursOnImagePlane(slice);
 
 			foreach (var arr in contour)
-            {
-                foreach (var point in arr)
-                {
+			{
+				foreach (var point in arr)
+				{
 					double distance = Math.Sqrt(Math.Pow(pos.x - point.x, 2) + Math.Pow(pos.y - point.y, 2));
 
 					if (distance > maxDistance)
@@ -658,7 +658,7 @@ namespace VMS.TPS
 
 
 	public static class ImageExtensions
-    {
+	{
 		/// <summary>
 		/// Calculates closest slice number in image from given Dicom position.
 		/// </summary>
@@ -666,11 +666,11 @@ namespace VMS.TPS
 		/// <param name="pos"></param>
 		/// <returns>Slice number enumerated in caudal-cranial direction</returns>
 		public static int ClosestSlice(this Image image, VVector pos)
-        {
+		{
 			double distanceFromOrigin = Math.Abs(pos.z - image.Origin.z) / image.ZRes;
 			int sliceNumber = (int)Math.Round(distanceFromOrigin) + 1;
 			return sliceNumber;
-        }
+		}
 		public static int ClosestSlice(this Image image, double zPos)
 		{
 			double distanceFromOrigin = Math.Abs(zPos - image.Origin.z) / image.ZRes;
@@ -715,12 +715,12 @@ namespace VMS.TPS
 		{
 			if ((context.PlanSum == null && context.PlanSetup == null) || context.StructureSet == null)
 			{
-                if (context.StructureSet == null)
-                {
+				if (context.StructureSet == null)
+				{
 					MessageBox.Show("Please select a plan in the active context window.");
 				}
-                else
-                {
+				else
+				{
 					StructureSet ss = context.StructureSet;
 					string messageTitle = "Quick check on structure set" + ss.Id;
 					string message = CheckStructureSet(ss) +
@@ -731,13 +731,15 @@ namespace VMS.TPS
 			else
 			{
 				if (context.PlanSum != null)
-                    {
+				{
 					PlanSum psum = context.PlanSum;
 					CheckPlanSum(psum);  //TODO: check plan category of included plans in plan sum
-                    }
-                else
-                    {
+				}
+				else
+				{
+					string usr = context.CurrentUser.Id;
 					PlanSetup plan = context.PlanSetup;
+					//string planCreator = plan.HistoryUserName.ToString();
 					PlanCat planCat = PlanCat.Unknown;
 					CheckPlanCategory(plan, ref planCat);
 					List<string> relevantDocuments = new List<string>();
@@ -748,6 +750,7 @@ namespace VMS.TPS
 					string message = string.Empty;
 
 					message +=
+					"Hello " + usr + "\n" +
 					"Assumed plan category: " + planCat + "\n\n" +
 					CheckCourseIntent(courseIntent, plan, planCat) + "\n" +
 					CheckPlanNamingConvention(plan) +
@@ -758,34 +761,34 @@ namespace VMS.TPS
 					CheckFieldNamingConvention(course, plan);
 
 
-                    if (planCat == PlanCat.Electron)
-                    {
+					if (planCat == PlanCat.Electron)
+					{
 						message += CheckElectronPlan(plan);
 					}
-                    else
-                    {
-                        switch (planCat)
-                        {
-                            case PlanCat.Unknown:
-                                break;
-                            case PlanCat.Electron:
-                                break;
-                            case PlanCat.SBRT:
+					else
+					{
+						switch (planCat)
+						{
+							case PlanCat.Unknown:
+								break;
+							case PlanCat.Electron:
+								break;
+							case PlanCat.SBRT:
 
-                                break;
-                            case PlanCat.TBI:
+								break;
+							case PlanCat.TBI:
 								message += CheckBodyCenter(plan);
 								break;
-                            case PlanCat.TMI:
-                                if (plan.Id.Contains("OPT"))
-                                {
+							case PlanCat.TMI:
+								if (plan.Id.Contains("OPT"))
+								{
 									message += CheckBodyCenter(plan);
 									message += TMIGetMaxSSDJunctions(plan);
 								}
 								break;
-                            default:
-                                break;
-                        }
+							default:
+								break;
+						}
 
 						message +=
 						CheckSetupField(plan) + "\n" +
@@ -850,9 +853,9 @@ namespace VMS.TPS
 			// get list of isocenter positions
 			List<VVector> isos = TMIIsocentersInPlan(plan);
 
-			
-			
-			
+
+
+
 
 			// debug
 			for (int i = 0; i < isos.Count; i++)
@@ -864,11 +867,11 @@ namespace VMS.TPS
 			}
 
 			if (isos.Count == 1)
-            {
+			{
 				junkPosZ += "\n** Only one isocenter, no checks can be done for this\n";
-            }
-            else if (isos.Any(i => i.x != isos[0].x || i.y != isos[0].y))
-            {
+			}
+			else if (isos.Any(i => i.x != isos[0].x || i.y != isos[0].y))
+			{
 				junkPosZ += "\n** Please adjust all isocenters to identical positions in vrt and lat\n";
 			}
 
@@ -901,7 +904,7 @@ namespace VMS.TPS
 				maxDistance2[j] = structure.MaxDistToStructureContourExit(ss, junctionPositions[j]);
 				VVector Up = junctionPositions[j];
 				VVector Down = junctionPositions[j];
-				Up.z += image.ZRes; 
+				Up.z += image.ZRes;
 				Down.z -= image.ZRes;
 				maxDistanceUp[j] = structure.MaxDistToStructureContourExit(ss, Up);
 				maxDistanceDown[j] = structure.MaxDistToStructureContourExit(ss, Down);
@@ -926,7 +929,7 @@ namespace VMS.TPS
 					if (testIntersect.Count() > 0)
 					{
 
-						
+
 						SegmentProfilePoint structureExitPoint = structure.GetSegmentProfile(junctionPositions[j], endPoint, new BitArray(200)).Where(s => s.Value == true).Last();
 
 						//convert from Type Point to VVector
@@ -942,8 +945,8 @@ namespace VMS.TPS
 							maxDistancePosition[j] = exitPos;
 						}
 					}
-					
-                }
+
+				}
 			}
 			// Note that all positions are still in dicom coordinates and distances in mm
 
@@ -951,29 +954,29 @@ namespace VMS.TPS
 			if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
 			{
 				fz = 13.5;
-            }
-            else
-            {
+			}
+			else
+			{
 				fz = 14.0;
-            }
+			}
 
 			for (int i = 0; i < junctionPositions.Count; i++)
-            {
+			{
 				VVector maxDistPosEclipse = image.DicomToUser(maxDistancePosition[i], plan);
 				junkPosZ += "\n\nmaxpos(x,y,z) " + ":\t(" + (maxDistPosEclipse.x / 10).ToString("0.0") + ", " + (maxDistPosEclipse.y / 10).ToString("0.0") + ", " + (maxDistPosEclipse.z / 10).ToString("0.0") + ")\n";
 				junkPosZ += "Max distance:\t" + (maxDistance[i] / 10).ToString("0.0") + "\n";
 				junkPosZ += "Max distance2:\t" + (maxDistance2[i] / 10).ToString("0.0") + "\n";
 				junkPosZ += "Max distanceUp:\t" + (maxDistanceUp[i] / 10).ToString("0.0") + "\n";
 				junkPosZ += "Max distanceDown:\t" + (maxDistanceDown[i] / 10).ToString("0.0") + "\n";
-				junkPosZ += "Max delta to cover the junction in all angles: \t" + (2*fz*(100-(maxDistance[i] / 10))/100).ToString("0.0") + "\n";
+				junkPosZ += "Max delta to cover the junction in all angles: \t" + (2 * fz * (100 - (maxDistance[i] / 10)) / 100).ToString("0.0") + "\n";
 			}
 
 			junkPosZ += "\nMin SSD:\t" + (100 - maxDistance.Max() / 10).ToString("0.0") + "\n\n";
 
-            if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
-            {
+			if (plan.TreatmentOrientation == PatientOrientation.HeadFirstSupine)
+			{
 				junkPosZ += TMICranialCoverage(plan);
-            }
+			}
 
 
 
@@ -982,9 +985,9 @@ namespace VMS.TPS
 			{
 				tmiRecom = TMISuggestedIsocentersHFS(plan);
 
-            }
-            else
-            {
+			}
+			else
+			{
 				tmiRecom = TMISuggestedIsocentersFFS(plan);
 			}
 
@@ -993,18 +996,18 @@ namespace VMS.TPS
 
 
 			List<VVector> tmiRecomEclipse = new List<VVector>();
-            foreach (var iso in tmiRecom)
-            {
+			foreach (var iso in tmiRecom)
+			{
 				tmiRecomEclipse.Add(image.DicomToUser(iso, plan));
-            }
+			}
 
 
 
 
 			string recom = "\n\n Suggested isocenters: (x,y,z) \n";
 
-            foreach (var i in tmiRecomEclipse)
-            {
+			foreach (var i in tmiRecomEclipse)
+			{
 				recom += (i.x / 10).ToString("0.0") + "\t" + (i.y / 10).ToString("0.0") + "\t" + (i.z / 10).ToString("0.0") + " \n";
 			}
 
@@ -1072,7 +1075,7 @@ public PlanSetup CopyPlanSetup(
 
 			// Set temporary position for first cranial isocenter as user origin
 			VVector firstIsoCran = ss.Image.UserOrigin;
-			
+
 			// Vrt resonable position is estimated by weighting geometric center of lungs and PTV_Total
 			firstIsoCran.y = (lungGeoCenter.y * 60 + ptvGeoCenter.y * 40) / 100;
 
@@ -1113,16 +1116,16 @@ public PlanSetup CopyPlanSetup(
 				// First iso long should still be ok even with lat shift of a couple of cm.
 				double optLat = lungGeoCenter.x + ptvTotal.GeometricCenterClosestSlice(ss, isos[0]).x;
 				for (int i = 1; i < junctionPositions.Count; i++)
-                {
+				{
 					optLat += ptvTotal.GeometricCenterClosestSlice(ss, junctionPositions[i]).x;
 				}
 				optLat /= (junctionPositions.Count + 2);
 				optLat = (int)Math.Round(optLat, 0);
 
-                if (Math.Abs(optLat - image.UserOrigin.x) > latShiftLimit)
+				if (Math.Abs(optLat - image.UserOrigin.x) > latShiftLimit)
 				{
-                    for (int i = 0; i < isos.Count; i++)
-                    {
+					for (int i = 0; i < isos.Count; i++)
+					{
 						VVector temp = isos[i];
 						temp.x = optLat;
 						isos[i] = temp;
@@ -1150,17 +1153,17 @@ public PlanSetup CopyPlanSetup(
 
 				// break if condition is satisfied, otherwise reduce delta and check again
 				if (delta + minOverlap < 2 * fieldSize * (Machine.SID - (maxDistance)) / Machine.SID || delta == minimumDelta)
-                {
+				{
 					break;
-                }
-                else
-                {
+				}
+				else
+				{
 					isos.Clear();
 					junctionPositions.Clear();
 				}
 			}
 			return isos;
-        }
+		}
 
 
 
@@ -1175,7 +1178,7 @@ public PlanSetup CopyPlanSetup(
 		/// <param name="unit"></param>
 		/// <returns>position in dicom coordinates</returns>
 		public VVector RoundToUser(PlanSetup plan, VVector pos, Conversion.UnitLength unit = Conversion.UnitLength.mm)
-        {
+		{
 
 			int unitConv = (int)unit;
 			Image image = plan.StructureSet.Image;
@@ -1220,7 +1223,7 @@ public PlanSetup CopyPlanSetup(
 				junction.z = (firstIsoFFS.z + lastIsoHFS.z) / 2;
 				double maxDistance = ptvTotal.MaxDistToStructureExit(junction);
 
-				if (delta + minOverlap  < 2 * fieldSizeHFS * (Machine.SID - (maxDistance)) / Machine.SID || delta == minDeltaFFS)
+				if (delta + minOverlap < 2 * fieldSizeHFS * (Machine.SID - (maxDistance)) / Machine.SID || delta == minDeltaFFS)
 				{
 					break;
 				}
@@ -1245,10 +1248,10 @@ public PlanSetup CopyPlanSetup(
 
 				// change delta to even cm based on number of isos and back to mm for calculation
 				double firstToLastIsoMm = Math.Abs(firstIsoFFS.z - lastIsoFFS.z); // mm
-				int delta = (int)Math.Ceiling(firstToLastIsoMm /(10 * nriso)) * 10;
+				int delta = (int)Math.Ceiling(firstToLastIsoMm / (10 * nriso)) * 10;
 
 				//MessageBox.Show("FirstToLastIsoMM: " + firstToLastIsoMm + "\tDelta  :"  + delta + "\tNr of iso: " + nriso + "\n");
-								
+
 				for (int i = 1; i <= nriso; i++)
 				{
 					iso.z -= delta;
@@ -1408,26 +1411,26 @@ public PlanSetup CopyPlanSetup(
 			// of iso to cover PTV. Enough to scan from iso to outer position determined by scan radius, divergence and field size
 
 			int anglesIntersecting = 0;
- 
+
 			double zOffsetIso = assumedFieldsize;
 			double zOffsetEnd = assumedFieldsize * (Machine.SID - searchRadius) / Machine.SID;
 
 			anglesIntersecting = NrAnglesIntersectStructure(structure, isoPos, searchRadius, zOffsetIso, zOffsetEnd);
-			
 
 
-            switch (anglesIntersecting)
-            {
+
+			switch (anglesIntersecting)
+			{
 				case 0:
 					result += "Cranial part of PTV covered ok.\n";
 					break;
 				case 360:
 					result += "** Cranial part of PTV not covered!\n";
 					break;
-                default:
+				default:
 					result += "Cranial part of PTV not covered in all angles." + "(" + anglesIntersecting + "/360)\n";
 					break;
-            }
+			}
 
 			VVector optimalPos = image.DicomToUser(ZposCoverAllAngles(structure, isoPos, assumedFieldsize, true), plan);
 			result += "To precisely cover the cranial part of PTV_Total in all angles, given the planned isocenter position in lat and vrt, the z-position is: ";
@@ -1465,7 +1468,7 @@ public PlanSetup CopyPlanSetup(
 		/// <param name="iso"></param>
 		/// <param name="fieldSize"></param>
 		/// <returns></returns>
-		public VVector ZposCoverAllAngles(Structure structure, VVector iso, double fieldSize, bool cranial) 
+		public VVector ZposCoverAllAngles(Structure structure, VVector iso, double fieldSize, bool cranial)
 		{
 			double searchRadius = structure.MaxDistToBoundsExit(iso);
 			double zOffsetIso = fieldSize;
@@ -1474,8 +1477,8 @@ public PlanSetup CopyPlanSetup(
 			int maxScanDist = 200; // high value needed if offset in transverce plane large
 			VVector optimalPosDicom = iso;
 			double anglesIntersecting;
-            if (cranial)
-            {
+			if (cranial)
+			{
 				optimalPosDicom.z = structure.MeshGeometry.Positions.Max(p => p.Z) - startScanInStructure - fieldSize;
 				for (int i = 0; i < maxScanDist; i++)
 				{
@@ -1486,9 +1489,9 @@ public PlanSetup CopyPlanSetup(
 						break;
 					}
 				}
-            }
-            else // caudal
-            {
+			}
+			else // caudal
+			{
 				optimalPosDicom.z = structure.MeshGeometry.Positions.Min(p => p.Z) + startScanInStructure + fieldSize;
 				for (int i = 0; i < maxScanDist; i++)
 				{
@@ -1515,8 +1518,8 @@ public PlanSetup CopyPlanSetup(
 		/// <param name="zOffsetEnd"></param>
 		/// <param name="angleIncrement"></param>
 		/// <returns></returns>
-		public int  NrAnglesIntersectStructure(Structure structure, VVector iso, double searchRadius, double zOffsetStart, double zOffsetEnd, double angleIncrement = 1)
-        {
+		public int NrAnglesIntersectStructure(Structure structure, VVector iso, double searchRadius, double zOffsetStart, double zOffsetEnd, double angleIncrement = 1)
+		{
 			VVector startPoint = iso;
 			VVector endPoint = iso;
 			startPoint.z += zOffsetStart;
@@ -1544,7 +1547,7 @@ public PlanSetup CopyPlanSetup(
 		/// <param name="plan"></param>
 		/// <returns></returns>
 		public List<VVector> TMIIsocentersInPlan(PlanSetup plan)
-        {
+		{
 			List<VVector> isos = new List<VVector>();
 			foreach (var beam in plan.Beams.OrderByDescending(b => b.IsocenterPosition.z).ThenBy(b => b.IsocenterPosition.x).ThenBy(b => b.IsocenterPosition.y))
 			{
@@ -1558,42 +1561,42 @@ public PlanSetup CopyPlanSetup(
 
 
 		private string CheckBodyCenter(PlanSetup plan)
-        {
+		{
 			string results = string.Empty;
-			
+
 			StructureSet ss = plan.StructureSet;
 			Image image = ss.Image;
 			Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type
 			if (body.MeshGeometry == null)
-            {
+			{
 				results = "Cannot find geometric center";
-            }
-            else
-            {
+			}
+			else
+			{
 				VVector gCenter = body.GeometricCenter();
 				VVector gCEclipse = image.DicomToUser(gCenter, plan);
 				VVector wCenter = body.CenterPoint;
 				VVector wCEclipse = image.DicomToUser(wCenter, plan);
-			results = "Body weighted center: \tvrt: " + (wCEclipse.y / 10).ToString("0.0") + "\tlat: " + (wCEclipse.x / 10).ToString("0.0") + "\n" +
-					"Body geometric center: \tvrt: " + (gCEclipse.y / 10).ToString("0.0") + "\tlat: " + (gCEclipse.x / 10).ToString("0.0") + "\n";
+				results = "Body weighted center: \tvrt: " + (wCEclipse.y / 10).ToString("0.0") + "\tlat: " + (wCEclipse.x / 10).ToString("0.0") + "\n" +
+						"Body geometric center: \tvrt: " + (gCEclipse.y / 10).ToString("0.0") + "\tlat: " + (gCEclipse.x / 10).ToString("0.0") + "\n";
 			}
 
 			return results;
 		}
 
 
-        /// <summary>
-        /// Information for sum plan exclusively for TBI/TMI plans with delta shifts between plan isocenters
-        /// </summary>
-        /// <param name="psum"></param>
-        private void CheckPlanSum(PlanSum psum)
-        {// Only for TMI...
+		/// <summary>
+		/// Information for sum plan exclusively for TBI/TMI plans with delta shifts between plan isocenters
+		/// </summary>
+		/// <param name="psum"></param>
+		private void CheckPlanSum(PlanSum psum)
+		{// Only for TMI...
 			string sumPlans = string.Empty;
 			PlanSetup firstPlan = psum.PlanSetups.OrderBy(p => p.Id).FirstOrDefault();
 			PlanCat planCat = PlanCat.Unknown;
 			CheckPlanCategory(firstPlan, ref planCat);
 			if (planCat == PlanCat.TBI || planCat == PlanCat.TMI)
-            {
+			{
 				//List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Beams.Where(b => b.IsSetupField).Count()).ThenBy(p => p.Id).ToList();
 				List<PlanSetup> sumPlanTreatOrderHFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.HeadFirstSupine).OrderBy(p => p.Id).ToList();
 				List<PlanSetup> sumPlanTreatOrderFFS = psum.PlanSetups.Where(p => p.TreatmentOrientation == PatientOrientation.FeetFirstSupine).OrderBy(p => p.Id).ToList();
@@ -1619,9 +1622,9 @@ public PlanSetup CopyPlanSetup(
 						sumPlans += sumPlanTreatOrderFFS[i].Id + "\t\n" + DeltaShiftFromPlanToPlan(sumPlanTreatOrderFFS[i - 1], sumPlanTreatOrderFFS[i]);
 					}
 				}
-            }
-            else
-            {
+			}
+			else
+			{
 				sumPlans = "Can only show sumplans for category TMI and TBI VMAT";
 			}
 
@@ -1640,9 +1643,9 @@ public PlanSetup CopyPlanSetup(
 		/// <param name="planCat"></param>
 		private void CheckPlanCategory(PlanSetup plan, ref PlanCat planCat)
 		{
-			
+
 			if (IsPlanElectron(plan))
-            {
+			{
 				planCat = PlanCat.Electron;
 			}
 			else if (IsPlanSRT(plan))
@@ -1650,26 +1653,26 @@ public PlanSetup CopyPlanSetup(
 				planCat = PlanCat.SBRT;
 			}
 			else if (plan.Course.Intent.Contains("TBI"))
-            {
+			{
 				planCat = GetTechniqueTBI(plan);
 			}
 		}
 
-        private PlanCat GetTechniqueTBI(PlanSetup plan)
-        {
+		private PlanCat GetTechniqueTBI(PlanSetup plan)
+		{
 			string gd = plan.Beams.Where(b => !b.IsSetupField).First().GantryDirection.ToString();
 
-            if (gd.Contains("None"))
+			if (gd.Contains("None"))
 			{
-				return PlanCat.TBI;	// Oldschool TBI
-            }
-            else
-            {
+				return PlanCat.TBI; // Oldschool TBI
+			}
+			else
+			{
 				return PlanCat.TMI;
-            }
+			}
 		}
 
-        public bool IsPlanElectron(PlanSetup plan)
+		public bool IsPlanElectron(PlanSetup plan)
 		{
 			return plan.Beams.Where(b => !b.IsSetupField).Where(b => b.EnergyModeDisplayName.Contains("E")).Any();
 		}
@@ -1690,12 +1693,12 @@ public PlanSetup CopyPlanSetup(
 		{
 			//TODO: Check valid SSD
 			string cResults = string.Empty;
-			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id)) 
+			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 			{
 				cResults += beam.Technique.Id + "\n" + beam.Applicator.Id + "\n";
 				// Check number of blocks connected to beam
-                if (beam.Blocks.Count() == 1)
-                {
+				if (beam.Blocks.Count() == 1)
+				{
 					Block eBlock = beam.Blocks.First();
 					cResults += eBlock.Tray.Id + "\n" + // CustomFFDA, FFDA(A10+)
 						eBlock.AddOnMaterial.Id + "\n" + //Elektonblock
@@ -1705,12 +1708,12 @@ public PlanSetup CopyPlanSetup(
 						CheckEBlockRules(beam) +
 						CheckEBlockOutLine(beam, eBlock);
 				}
-                else if (beam.Blocks.Count() > 1)
-                {
+				else if (beam.Blocks.Count() > 1)
+				{
 					cResults += "WTH!! why would u need more than ONE block?!\n";
-				} 
+				}
 				else
-                {
+				{
 					cResults += "Note: WTF acc. to Centuri, still need a block??????????????No custom block will give the nominal square field size of the applicator with the standard insert + " +
 						"Can not automaticly check the Tray Id under Accessories -> Slot 3.\n";
 				}
@@ -1718,8 +1721,8 @@ public PlanSetup CopyPlanSetup(
 			return cResults;
 		}
 
-        private string CheckEBlockRules(Beam beam)
-        {
+		private string CheckEBlockRules(Beam beam)
+		{
 			string cResults = string.Empty;
 			Block eBlock = beam.Blocks.First();
 			if (eBlock.Type != BlockType.APERTURE)
@@ -1742,43 +1745,43 @@ public PlanSetup CopyPlanSetup(
 			return cResults;
 		}
 
-        private string CheckEBlockOutLine(Beam beam, Block eBlock)
-        {
+		private string CheckEBlockOutLine(Beam beam, Block eBlock)
+		{
 			string cResults = string.Empty;
 			var blockPoints = eBlock.Outline;
 			int[] standardEBlockDiameters = { 4, 5, 6, 7, 8, 9, 10 };
 			double radii = 0;
-            double minRadi = 1000;
-            double maxRadi = 0;
+			double minRadi = 1000;
+			double maxRadi = 0;
 			// TODO: I assume this whole thing can be made into a one liner with linq...
-            foreach (var p in blockPoints)
-            {
-                for (int i = 0; i < p.Count(); i++)
-                {
+			foreach (var p in blockPoints)
+			{
+				for (int i = 0; i < p.Count(); i++)
+				{
 					Vector pointVector = (Vector)p[i];
 					radii = pointVector.Length;
-                    if (radii > maxRadi)
-                    {
+					if (radii > maxRadi)
+					{
 						maxRadi = radii;
-                    }
-                    else if (radii < minRadi)
-                    {
+					}
+					else if (radii < minRadi)
+					{
 						minRadi = radii;
-                    }
-                }
+					}
+				}
 			}
-            if (Math.Round(maxRadi, 0) == Math.Round(minRadi, 0) && standardEBlockDiameters.Contains((int)(2 * Math.Round(maxRadi, 0)/10)))
+			if (Math.Round(maxRadi, 0) == Math.Round(minRadi, 0) && standardEBlockDiameters.Contains((int)(2 * Math.Round(maxRadi, 0) / 10)))
 			{
 				int stdBlockDiam = (int)(2 * Math.Round(maxRadi, 0) / 10);
 
 				if (beam.Applicator.Id.Equals("A10"))
-                {
+				{
 					// TODO: check the naming of the block ID, which should reflect the diameter of the block
 					cResults += "Standard block with diameter " + stdBlockDiam.ToString("0") + " cm\n";
 					cResults += CheckStandardEBlockNamingConvention(eBlock.Id, stdBlockDiam);
 				}
-                else
-                {
+				else
+				{
 					cResults += "* The block aperture diameter (" + ((int)(2 * Math.Round(maxRadi, 0)) / 10).ToString("0") + " cm)" +
 						" equals a standard block, please change the applicator to A10 if you want to use a standard block!\n";
 				}
@@ -1809,15 +1812,15 @@ public PlanSetup CopyPlanSetup(
 				Group g = blockApertureDiamMm.Match(blockID).Groups[1];
 				if (int.TryParse(g.Value, out blockIdDiam))
 				{
-					blockIdDiam = (int)(blockIdDiam / 10); 
+					blockIdDiam = (int)(blockIdDiam / 10);
 				}
-            }
-            else
-            {
+			}
+			else
+			{
 				cResults += wrongNaming;
 			}
-            if (apertureDiameter != blockIdDiam)
-            {
+			if (apertureDiameter != blockIdDiam)
+			{
 				cResults += wrongNaming;
 			}
 
@@ -1837,15 +1840,15 @@ public PlanSetup CopyPlanSetup(
 		private string DeltaShiftFromPlanToPlan(PlanSetup fromPlan, PlanSetup toPlan)
 		{
 			VVector deltaShift = DeltaShiftIncm(fromPlan, fromPlan.Beams.First().IsocenterPosition, toPlan.Beams.First().IsocenterPosition);
-			
+
 			string delta = " Delta(Vrt,Lng,Lat)[cm]: \t" + deltaShift.y.ToString("0.00");
 			delta += "\t" + deltaShift.z.ToString("0.00");
-			delta += "\t" + deltaShift.x.ToString("0.00")+ "\n";
+			delta += "\t" + deltaShift.x.ToString("0.00") + "\n";
 			return delta;
 		}
 
 		private string DeltaShiftFromOrigin(PlanSetup plan)
-        {
+		{
 			VVector deltaShift = DeltaShiftIncm(plan, plan.StructureSet.Image.UserOrigin, plan.Beams.First().IsocenterPosition);
 
 			string delta = "\niso-Vrt: \t" + deltaShift.y.ToString("0.00") + " cm\n";
@@ -1863,7 +1866,7 @@ public PlanSetup CopyPlanSetup(
 		}
 
 		private VVector DeltaShiftIncm(PlanSetup plan, VVector dicomOriginalPosition, VVector dicomFinalPosition)
-        {
+		{
 			Image image = plan.StructureSet.Image;
 			VVector eclipseOriginalPosition = image.DicomToUser(dicomOriginalPosition, plan);
 			VVector eclipseFinalPosition = image.DicomToUser(dicomFinalPosition, plan);
@@ -1882,7 +1885,7 @@ public PlanSetup CopyPlanSetup(
 		// ********* Kontroll av bolus, om kopplat till alla fält, förväntat HU-värde och namngivning  *********
 		// kollar enbart bolus kopplat till något fält
 		private string CheckForBolus(PlanSetup plan, ref List<string> relevantDocuments)
-        {
+		{
 			string cResults = string.Empty;
 			List<string> bolusList = new List<string>();
 			List<int> bolusListnr = new List<int>();
@@ -1890,100 +1893,100 @@ public PlanSetup CopyPlanSetup(
 			int noOfBoluses = 0;
 			int nrOfBeams = plan.Beams.Count();
 			// iterate through all beams in plan, and then all boluses in beams to get all boluses used
-            foreach (var beam in plan.Beams)
-            {
-                foreach (var bolus in beam.Boluses)
-                {
+			foreach (var beam in plan.Beams)
+			{
+				foreach (var bolus in beam.Boluses)
+				{
 					noOfBoluses += beam.Boluses.Count();
-                    if (bolusList.IndexOf(bolus.Id) < 0)
-                    {
+					if (bolusList.IndexOf(bolus.Id) < 0)
+					{
 						bolusList.Add(bolus.Id);
 						bolusListnr.Add(1);
 						bolusListHU.Add(bolus.MaterialCTValue);
 					}
-                    else
-                    {
+					else
+					{
 						bolusListnr[bolusList.IndexOf(bolus.Id)] += 1;
 					}
-                }
-            }
-            if (noOfBoluses >= 1)
-            {
+				}
+			}
+			if (noOfBoluses >= 1)
+			{
 				relevantDocuments.Add("https://www.red-gate.com/si");
 			}
-            for (int i = 0; i < bolusList.Count(); i++)
-            {
-                if (bolusListnr[i] != nrOfBeams)
-                {
+			for (int i = 0; i < bolusList.Count(); i++)
+			{
+				if (bolusListnr[i] != nrOfBeams)
+				{
 					cResults += "* Bolus \"" + bolusList[i] + "\" not linked to all fields, check if this is intended. \n\n";
 				}
-                if (bolusListHU[i] != 0)
-                {
+				if (bolusListHU[i] != 0)
+				{
 					cResults += "* Bolus \"" + bolusList[i] + "\" not assigned default HU (assigned " + bolusListHU[i].ToString("0") + " HU instead of expected/default 0 HU), check if this is intended. \n\n";
 				}
 				cResults += CheckBolusNamingConvention(bolusList[i]);
-            }
+			}
 			return cResults;
-        }
+		}
 
-        private string CheckBolusNamingConvention(string bolusID)
-		{ 
+		private string CheckBolusNamingConvention(string bolusID)
+		{
 			string cResults = string.Empty;
 			double bolusThick = 0;
 
 			var bolusThicknessCm = new Regex(@"(\d{1}.?\d?)\s?(cm)", RegexOptions.IgnoreCase);
 			var bolusThicknessMm = new Regex(@"(\d{1,2})\s?(mm)", RegexOptions.IgnoreCase);
 			var bolusCTpattern = new Regex(@"ct", RegexOptions.IgnoreCase);
-            if (bolusThicknessCm.IsMatch(bolusID))
-            {
+			if (bolusThicknessCm.IsMatch(bolusID))
+			{
 				Group g = bolusThicknessCm.Match(bolusID).Groups[1];
-				if (Double.TryParse(g.Value.Replace(",", ".") , out bolusThick))
-                {
+				if (Double.TryParse(g.Value.Replace(",", "."), out bolusThick))
+				{
 					cResults += CheckBolusThickness((int)(bolusThick * 10));
-                }
-            }
-            else if (bolusThicknessMm.IsMatch(bolusID))
-            {
+				}
+			}
+			else if (bolusThicknessMm.IsMatch(bolusID))
+			{
 				Group g = bolusThicknessMm.Match(bolusID).Groups[1];
 				if (Double.TryParse(g.Value, out bolusThick))
 				{
 					cResults += CheckBolusThickness((int)bolusThick);
 				}
-            }
-            else if (!bolusCTpattern.IsMatch(bolusID))
-            {
+			}
+			else if (!bolusCTpattern.IsMatch(bolusID))
+			{
 				cResults += "* Check naming convention of bolus ID: \"" + bolusID + "\"\n\n";
 			}
 
-            return cResults;
-        }
+			return cResults;
+		}
 
-        private string CheckBolusThickness(int mmBolus)
-        {
+		private string CheckBolusThickness(int mmBolus)
+		{
 			string cResults = string.Empty;
 			int[] availableThicknesses = { 3, 5, 8, 10, 13, 15, 18, 20 };
-            if (!availableThicknesses.Contains(mmBolus))
-            {
+			if (!availableThicknesses.Contains(mmBolus))
+			{
 				cResults = "* Physical thickness of available boluses are 3, 5 and 10 mm and a combination thereof. \n\n";
 			}
 			return cResults;
-        }
+		}
 
-        #endregion Bolus
+		#endregion Bolus
 
-        #region Structure set
+		#region Structure set
 
-        // TMI: order plans from head to toe (by isopos in dicom, reverse), check ID numbering
-        // search for mask base plate and half spheres in image
+		// TMI: order plans from head to toe (by isopos in dicom, reverse), check ID numbering
+		// search for mask base plate and half spheres in image
 
 
-        private string CheckStructureSet(PlanSetup plan, PlanCat planCategory)
+		private string CheckStructureSet(PlanSetup plan, PlanCat planCategory)
 		{
 			StructureSet ss = plan.StructureSet;
 			string cResults = string.Empty;
 			string cAssignedHU = string.Empty;
 			try
-            {
+			{
 				foreach (var structure in ss.Structures.Where(s => !s.Id.Contains("Couch")))
 				{
 					cAssignedHU += CheckForAssignedHU(structure);
@@ -1993,8 +1996,8 @@ public PlanSetup CopyPlanSetup(
 					cResults += CheckStructureSetSBRT(plan);
 				}
 			}
-            catch (Exception e)
-            {
+			catch (Exception e)
+			{
 				cResults += e;
 			}
 			if (!string.IsNullOrEmpty(cAssignedHU))
@@ -2021,8 +2024,8 @@ public PlanSetup CopyPlanSetup(
 				foreach (var structure in ss.Structures.Where(s => !s.Id.Contains("Couch")).Where(s => !s.Id.Contains("Bones")))
 				{
 					cAssignedHU += CheckForAssignedHU(structure);
-                    if (!structure.IsEmpty && structure.HasSegment)
-                    {
+					if (!structure.IsEmpty && structure.HasSegment)
+					{
 						numberOfSeparateParts = structure.GetNumberOfSeparateParts();
 						if (numberOfSeparateParts > 1)
 						{
@@ -2035,8 +2038,8 @@ public PlanSetup CopyPlanSetup(
 			{
 				cResults += e;
 			}
-            if (!string.IsNullOrEmpty(cAssignedHU))
-            {
+			if (!string.IsNullOrEmpty(cAssignedHU))
+			{
 				cResults += "Structures with assigned HU: \n\n" + cAssignedHU + "\n\n";
 			}
 			if (!string.IsNullOrEmpty(cSeparateParts))
@@ -2047,15 +2050,15 @@ public PlanSetup CopyPlanSetup(
 
 			// attemt to roughly estimate CTV to PTV margin
 			// Search for structure in structure set with same id as target volume and checks if type is PTV, defaults to null if criteria not met
-			List<Structure> ptvList = ss.Structures.Where(s => s.Id.Substring(0,3) == "PTV").Where(s => s.DicomType == "PTV").ToList();
+			List<Structure> ptvList = ss.Structures.Where(s => s.Id.Substring(0, 3) == "PTV").Where(s => s.DicomType == "PTV").ToList();
 			// Check if more than one PTV exists
 			if (ptvList != null)
 			{
 				cResults += "Estimation of CTV to PTV margin by comparing outer bounds of respective structure:\n";
 				foreach (var ptv in ptvList)
 				{
-                    try
-                    {
+					try
+					{
 						Structure ctv = ss.Structures.Where(s => ptv.Id.Contains(s.Id.Substring(1, s.Id.Length - 1))).Where(s => s.DicomType == "CTV").SingleOrDefault();
 						//Structure ctv = ss.Structures.Where(s => ptv.Id.Contains(s.Id.Substring(1, s.Id.Length - 1))).SingleOrDefault();
 						bool correctCTV = true;
@@ -2087,8 +2090,8 @@ public PlanSetup CopyPlanSetup(
 							cResults += ctv.Id + " -> " + ptv.Id + ":\t can not identify corresponding CTV.\n";
 						}
 					}
-                    catch (Exception e)
-                    {
+					catch (Exception e)
+					{
 						cResults += ptv.Id + " gave following error: \t" + e;
 					}
 
@@ -2102,10 +2105,10 @@ public PlanSetup CopyPlanSetup(
 		private void CheckStructNameAndType(PlanSetup plan)
 		{
 			// From dose value and plan dose recommend isodose lines?
-		
+
 			// SSM 2016:18 national nomenclature for structures in radiation therapy (ignores the fact that "/" also is ok for "free text" at the end)
 			Regex targetNaming = new Regex(@"^([GCIP]TV)(?<type>[TNM]?)(?<number>[1-9]?)(_(?<position>[LR]))?(_(?<dose>\d{1,2}(?:\.[0-9]{1,2})?))?(?:[\(](?<description>.+)[\)])?", RegexOptions.IgnoreCase);
-			
+
 			StructureSet ss = plan.StructureSet;
 			// structures included resp excluded in calculation (outside body and not bolus, empty)
 			// sort order type; ptv, ctv, itv, gtv 
@@ -2132,7 +2135,7 @@ public PlanSetup CopyPlanSetup(
 			targetStructures.AddRange(gtvStruct);
 
 
-			
+
 			string message = string.Empty;
 			foreach (var target in targetStructures)
 			{
@@ -2152,65 +2155,66 @@ public PlanSetup CopyPlanSetup(
 			// cant get it to work solely on regex for som reason, need to compare string lengths as well
 			foreach (var target in targetStructures)
 			{
-                if (targetNaming.IsMatch(target.Id) && targetNaming.Match(target.Id).Length == target.Id.Length)
-                {
-					message += target.Id + ": okidoki. \n";
+				if (targetNaming.IsMatch(target.Id) && targetNaming.Match(target.Id).Length == target.Id.Length)
+				{
+					continue;
 				}
-                else
-                {
+				else
+				{
 					message += target.Id + ": namgivning verkar inte följa nationell standard. \n";
 				}
 			}
 
-			Structure body = ss.Structures.Where(s => s.DicomType == "BODY").SingleOrDefault();  // ***************** crashes if no BODY type found!
+			Structure body = ss.Structures.Where(s => s.DicomType == "EXTERNAL").SingleOrDefault();  // ***************** crashes if no BODY type found!
 			VVector bodyCenter = body.GeometricCenter();
-																						  // check position of target (L/R) compared to body center
-			foreach (var target in targetStructures)
-            {
-				if (targetNaming.Match(target.Id).Length == target.Id.Length && !string.IsNullOrEmpty(targetNaming.Match(target.Id).Groups["position"].Value))
-				{
+            //check position of target(L/ R) compared to body center
 
-					switch (targetNaming.Match(target.Id).Groups["position"].Value)
+            foreach (var target in targetStructures)
+            {
+                if (targetNaming.Match(target.Id).Length == target.Id.Length && !string.IsNullOrEmpty(targetNaming.Match(target.Id).Groups["position"].Value))
+                {
+
+                    switch (targetNaming.Match(target.Id).Groups["position"].Value)
                     {
 
-						case "L":
+                        case "L":
 
                             if (target.GeometricCenter().x < bodyCenter.x)
                             {
-								message += target.Id + "Kontrollera namngivning, geometriskt center verkar vara till höger om BODY-center";
+                                message += target.Id + "Kontrollera namngivning, geometriskt center verkar vara till höger om BODY-center\n";
                             }
 
-							break;
-						case "R":
+                            break;
+                        case "R":
 
-							if (target.GeometricCenter().x > bodyCenter.x)
-							{
-								message += target.Id + "Kontrollera namngivning, geometriskt center verkar vara till vänster om BODY-center";
-							}
+                            if (target.GeometricCenter().x > bodyCenter.x)
+                            {
+                                message += target.Id + "Kontrollera namngivning, geometriskt center verkar vara till vänster om BODY-center\n";
+                            }
 
-							break;
+                            break;
                         default:
                             break;
                     }
-				}
-			}
-
-
-				// ******************************   testing testing *********************
-
-				foreach (var ptv in ptvStruct)
-            {
-				double doseValue = 0.0;
-                if (targetNaming.IsMatch(ptv.Id) && string.IsNullOrEmpty(targetNaming.Match(ptv.Id).Groups["dose"].Value) == false && targetNaming.Match(ptv.Id).Length == ptv.Id.Length)
-                {
-                    string doseValueString = targetNaming.Match(ptv.Id).Groups["dose"].Value;
-                    if (double.TryParse(doseValueString, out doseValue))
-                    {
-                        message += ptv.Id + " testing: dose value = " + doseValue.ToString("0.00") + " Gy.\n\n";
-                    }
                 }
-                else
-                {
+            }
+
+
+            // ******************************   testing testing *********************
+
+            foreach (var ptv in ptvStruct)
+			{
+				double doseValue = 0.0;
+				if (targetNaming.IsMatch(ptv.Id) && string.IsNullOrEmpty(targetNaming.Match(ptv.Id).Groups["dose"].Value) == false && targetNaming.Match(ptv.Id).Length == ptv.Id.Length)
+				{
+					string doseValueString = targetNaming.Match(ptv.Id).Groups["dose"].Value;
+					if (double.TryParse(doseValueString, out doseValue))
+					{
+						message += ptv.Id + " testing: dose value = " + doseValue.ToString("0.00") + " Gy.\n\n";
+					}
+				}
+				else
+				{
 					message += ptv.Id + " ingen dosnivå i PTV-ID.\n\n";
 				}
 
@@ -2230,10 +2234,10 @@ public PlanSetup CopyPlanSetup(
 
 
 			if (string.IsNullOrEmpty(message) == false)
-            {
+			{
 				MessageBox.Show(message);
 			}
-			
+
 
 
 			//DICOM types
@@ -2243,7 +2247,7 @@ public PlanSetup CopyPlanSetup(
 
 			string listOfStr = string.Empty;
 			foreach (var str in structures)
-            {
+			{
 				listOfStr += str.Id + "\t";//						 + str.DicomType + "\t" + str.StructureCode + "\n";
 			}
 
@@ -2292,7 +2296,7 @@ public PlanSetup CopyPlanSetup(
 
 
 		private string CheckForAssignedHU(Structure structure)
-        {
+		{
 			string cResults = string.Empty;
 			double huValue;
 			if (structure.GetAssignedHU(out huValue))
@@ -2308,23 +2312,23 @@ public PlanSetup CopyPlanSetup(
 		/// </summary>
 		/// <param name="plan"></param>
 		/// <returns></returns>
-        private string CheckStructureSetSBRT(PlanSetup plan)
-        {
+		private string CheckStructureSetSBRT(PlanSetup plan)
+		{
 			StructureSet ss = plan.StructureSet;
 			string cResults = string.Empty;
 
 			Image image = ss.Image;
-            if (image.ZRes >= 2.5)
-            {
+			if (image.ZRes >= 2.5)
+			{
 				cResults += "* Image slice thickness is " + image.ZRes.ToString("0.0") + " mm. Check if this is ok for this SBRT case.\n";
 			}
 			Structure skin = ss.Structures.Where(s => s.Id == "Skin").SingleOrDefault();
 			if (skin == null || skin.IsEmpty)
 			{
 				cResults = "* missing structure Skin \n";
-            }
-            else
-            {
+			}
+			else
+			{
 				Structure body = ss.Structures.Where(s => s.Id == "BODY").SingleOrDefault();  // TODO: better to take dicom type
 				double bodyVrtMin = body.MeshGeometry.Bounds.Y + body.MeshGeometry.Bounds.SizeY;
 				int minDifferenceBodySkin = 3; // if difference larger than 3 mm assume that body includes fixation device
@@ -2332,14 +2336,14 @@ public PlanSetup CopyPlanSetup(
 				VVector endPoint = plan.Beams.FirstOrDefault().IsocenterPosition;
 				VVector startPoint = endPoint;
 				startPoint.y = bodyVrtMin;
-				
+
 				var bodyEntrance = body.GetSegmentProfile(startPoint, endPoint, new BitArray(100)).Where(x => x.Value == true).First();
 				var skinEntrance = skin.GetSegmentProfile(startPoint, endPoint, new BitArray(100)).Where(x => x.Value == true).First();
 
-                if (bodyEntrance.Position.y <= skinEntrance.Position.y + minDifferenceBodySkin)
-                {
+				if (bodyEntrance.Position.y <= skinEntrance.Position.y + minDifferenceBodySkin)
+				{
 					cResults += "\n* Check if there are any fixation devices that should be included in the BODY structure.\n";
-                }
+				}
 			}
 			return cResults;
 		}
@@ -2384,19 +2388,19 @@ public PlanSetup CopyPlanSetup(
 
 
 
-        #endregion
+		#endregion
 
 
 
-        // ********* Helper method for checking iso coordinates, returns VVector  
-        // transforms coordinates from dicom to coordinates based on coronal view from table end, dicom-origo the same (usually center of image in Lat, below table in vrt)
-        // TODO: check if this clashes with other properties in VVector   TODO: check if all fields same isocenter
-        // TODO: would be nice if coordinates instead originates from center of image (or center of couch) in Lat, and Couch top surface in Vrt (this would also mean a 
-        // chance to predict/estimate absolute couch coordinates in lat and vrt)
+		// ********* Helper method for checking iso coordinates, returns VVector  
+		// transforms coordinates from dicom to coordinates based on coronal view from table end, dicom-origo the same (usually center of image in Lat, below table in vrt)
+		// TODO: check if this clashes with other properties in VVector   TODO: check if all fields same isocenter
+		// TODO: would be nice if coordinates instead originates from center of image (or center of couch) in Lat, and Couch top surface in Vrt (this would also mean a 
+		// chance to predict/estimate absolute couch coordinates in lat and vrt)
 
 
-        // overloaded method , should keep only one of them and instead check if all beams have the same isocenter
-        public VVector IsoPositionFromTableEnd(Beam beam, string treatOrient)
+		// overloaded method , should keep only one of them and instead check if all beams have the same isocenter
+		public VVector IsoPositionFromTableEnd(Beam beam, string treatOrient)
 		{
 			VVector beamIso = beam.IsocenterPosition; // mm from Dicom-origo
 			switch (treatOrient)
@@ -2500,13 +2504,13 @@ public PlanSetup CopyPlanSetup(
 		private string CheckPlanNamingConvention(PlanSetup plan)
 		{
 			string cResults = string.Empty;
-			
-			char planIdFirstChar = plan.Id[0];                
+
+			char planIdFirstChar = plan.Id[0];
 			char planIdSecondChar = plan.Id[1];
 			int planNumber;
 
-			if (char.ToUpperInvariant(planIdFirstChar) == 'P'  && int.TryParse(planIdSecondChar.ToString(), out planNumber ))
-            {
+			if (char.ToUpperInvariant(planIdFirstChar) == 'P' && int.TryParse(planIdSecondChar.ToString(), out planNumber))
+			{
 
 				CheckOtherPlanIdInCourse(plan, planNumber, ref cResults);
 
@@ -2518,29 +2522,29 @@ public PlanSetup CopyPlanSetup(
 			return cResults;
 		}
 
-        private void CheckOtherPlanIdInCourse(PlanSetup plan, int planNumber, ref string cResults)
-        {
+		private void CheckOtherPlanIdInCourse(PlanSetup plan, int planNumber, ref string cResults)
+		{
 			//TODO : make the function general so it can be used e.g. in field ID naming check
 			//TODO: check for revision, automatic or manually made (i.e. former plan retired or completed early) and in that case the appended ':[revision number]'
 			Course course = plan.Course;
-			char planIdFirstChar = plan.Id[0];                
+			char planIdFirstChar = plan.Id[0];
 			char planIdSecondChar = plan.Id[1];
 			int usedNumber;
 
 			foreach (var ps in course.PlanSetups.Where(p => p.Id != plan.Id))
-            {
+			{
 				planIdFirstChar = ps.Id[0];
 				planIdSecondChar = ps.Id[1];
 				if (char.ToUpperInvariant(planIdFirstChar) == 'P' && int.TryParse(planIdSecondChar.ToString(), out usedNumber))
 				{
 					if (ps.ApprovalStatus == PlanSetupApprovalStatus.PlanningApproved || ps.ApprovalStatus == PlanSetupApprovalStatus.TreatmentApproved ||
 					ps.ApprovalStatus == PlanSetupApprovalStatus.Completed || ps.ApprovalStatus == PlanSetupApprovalStatus.CompletedEarly)
-                    {
-                        if (planNumber == usedNumber)
-                        {
+					{
+						if (planNumber == usedNumber)
+						{
 							cResults += "* Plan ID '" + planIdFirstChar + planIdSecondChar + "' has already been used in a " + ps.ApprovalStatus + " plan:\n" + ps.Id + "\n\n";
 						}
-                    }
+					}
 				}
 			}
 		}
@@ -2548,13 +2552,13 @@ public PlanSetup CopyPlanSetup(
 
 
 
-        #region Treatment field naming convention
+		#region Treatment field naming convention
 
-        // ********* 	Kontroll att numrering av fält är konsekutivt, och att inte fältnumret använts i någon godkänd eller behandlad plan i samma Course *********
-        // kollar dock ej om man hoppar över ett nummer mellan planer
-        // TODO: recommend beam number change, prereq; need to check plan status and plan ID numbers
+		// ********* 	Kontroll att numrering av fält är konsekutivt, och att inte fältnumret använts i någon godkänd eller behandlad plan i samma Course *********
+		// kollar dock ej om man hoppar över ett nummer mellan planer
+		// TODO: recommend beam number change, prereq; need to check plan status and plan ID numbers
 		// OK to to if plan numbers differ
-        private string CheckFieldNamingConvention(Course course, PlanSetup plan)
+		private string CheckFieldNamingConvention(Course course, PlanSetup plan)
 		{
 			string cResult = string.Empty;
 			int tempNumber = 1000;
@@ -2617,20 +2621,20 @@ public PlanSetup CopyPlanSetup(
 			List<int> beamNumbersInOtherPlans = new List<int>();
 			List<int> beamNumbersUsed = new List<int>();
 			foreach (var ps in course.PlanSetups.Where(p => p.Id != plan.Id))
-            {
+			{
 				beamNumbersInOtherPlans = GetBeamNumbersFromOtherPlans(ps);
 				foreach (var n in beamNumbersInPlan)
-                {
+				{
 					if (beamNumbersInOtherPlans.Contains(n))
 					{
 						beamNumbersUsed.Add(n);
 					}
 				}
-                if (beamNumbersUsed.Count != 0)
-                {
+				if (beamNumbersUsed.Count != 0)
+				{
 					cResult += " * Field ID already used in a " + ps.ApprovalStatus + " plan: \t" + ps.Id + " ( ";
-                    foreach (var fieldId in beamNumbersUsed)
-                    {
+					foreach (var fieldId in beamNumbersUsed)
+					{
 						cResult += fieldId.ToString() + ", ";
 					}
 					cResult = cResult.Remove(cResult.Length - 2, 1);
@@ -2653,9 +2657,9 @@ public PlanSetup CopyPlanSetup(
 			var beamNumbers = new List<int>();
 			int number = 1000;
 
-			if (plan.ApprovalStatus == PlanSetupApprovalStatus.PlanningApproved || plan.ApprovalStatus == PlanSetupApprovalStatus.TreatmentApproved || 
+			if (plan.ApprovalStatus == PlanSetupApprovalStatus.PlanningApproved || plan.ApprovalStatus == PlanSetupApprovalStatus.TreatmentApproved ||
 				plan.ApprovalStatus == PlanSetupApprovalStatus.Completed || plan.ApprovalStatus == PlanSetupApprovalStatus.CompletedEarly)
-            {
+			{
 				foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
 				{
 					if (Int32.TryParse(beam.Id.Trim(), out number))
@@ -2663,23 +2667,23 @@ public PlanSetup CopyPlanSetup(
 						beamNumbers.Add(number);
 					}
 				}
-            }
+			}
 			return beamNumbers;
 		}
 
 
-        #endregion Treatment field naming convention
+		#endregion Treatment field naming convention
 
 
 
-        #region Set-up field checks
+		#region Set-up field checks
 
 
 
 
-        // ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
+		// ********* 	Kontroll av Setup-fält; namngivning och ej bordsvridning ********* 
 		// Om enbart CBCT-fält, beroende på plancat, kan ge hint om ext eller flytt från cbctmatchstruktur, plan target volume, iso 
-        private string CheckSetupField(PlanSetup plan)
+		private string CheckSetupField(PlanSetup plan)
 		{
 			string cResults = "";
 			int countSetupfields = 0;
@@ -2691,7 +2695,7 @@ public PlanSetup CopyPlanSetup(
 				{
 					cResults += "** Couch angle not 0!";
 				}
-				if (beam.Id.ToUpper().Substring(0, 2).Equals(plan.Id.ToUpper().Substring(0, 2))) // naming convention, should start with first two char in plan ID
+				if (beam.Id.Length >= 2   &&     beam.Id.ToUpper().Substring(0, 2).Equals(plan.Id.ToUpper().Substring(0, 2))) // naming convention, should start with first two char in plan ID
 				{
 					if (beam.Id.ToUpper().Contains("CBCT")) // no extra checks for cbct-setup field neccessary
 					{
@@ -2714,12 +2718,12 @@ public PlanSetup CopyPlanSetup(
 			// If case there is only one planar setup field: If treatment angle != 0 or 180, error, else reminder to either use catalyst or add a second setup field
 			if (plan.Beams.Where(b => b.IsSetupField).Where(b => !b.Id.ToUpper().Contains("CBCT")).Where(b => !b.Id.ToUpper().Contains("BOLUS")).Count() == 1) // CBCT and bolus helper field is ok
 			{
-                if (plan.Beams.Where(b => b.IsSetupField == false).Where(b => !b.ControlPoints.FirstOrDefault().GantryAngle.Equals(0.0) && !b.ControlPoints.FirstOrDefault().GantryAngle.Equals(180.0)).Count() > 0)
-                {
+				if (plan.Beams.Where(b => b.IsSetupField == false).Where(b => !b.ControlPoints.FirstOrDefault().GantryAngle.Equals(0.0) && !b.ControlPoints.FirstOrDefault().GantryAngle.Equals(180.0)).Count() > 0)
+				{
 					cResults += "* Only one planar setup field found. Add an orthogonal setup field for kV/kV matching.\n";
-                }
-                else if(plan.ApprovalStatus == PlanSetupApprovalStatus.PlanningApproved || plan.ApprovalStatus == PlanSetupApprovalStatus.TreatmentApproved)
-                {
+				}
+				else if (plan.ApprovalStatus == PlanSetupApprovalStatus.PlanningApproved || plan.ApprovalStatus == PlanSetupApprovalStatus.TreatmentApproved)
+				{
 					cResults += " Only one planar setup field found, remember to add Catalyst for setup (or add another setup field).\n";
 				}
 			}
@@ -2757,20 +2761,20 @@ public PlanSetup CopyPlanSetup(
 			}
 			else
 			{
-                if (beam.Id.ToUpper().Contains("BOLUS"))
-                {
+				if (beam.Id.ToUpper().Contains("BOLUS"))
+				{
 					cResults += "OK";
-                }
-                else
-                {
+				}
+				else
+				{
 					cResults += "* Id should include gantry angle!";
 				}
 			}
 			return cResults;
 		}
 
-        private string CheckSetupFieldForCollision(Beam beam, PlanSetup plan)
-        {
+		private string CheckSetupFieldForCollision(Beam beam, PlanSetup plan)
+		{
 			string cResults = string.Empty;
 			int latLimitForCollisionCheck = 40;
 			double lat = IsoPositionFromTableEnd(beam, plan.TreatmentOrientation.ToString()).x;
@@ -2834,7 +2838,7 @@ public PlanSetup CopyPlanSetup(
 		// ********* 	Kontroll av diverse fältregler och "best practices"	********* 
 		// TODO: better sorting, maybe one general and then divided in categories (enum). Missing case for Static-I and MLC doseDynamic (IMRT)
 
-		private string CheckFieldRules(PlanSetup plan, PlanCat planCat )
+		private string CheckFieldRules(PlanSetup plan, PlanCat planCat)
 		{
 			string cResults = string.Empty;
 			string remarks = string.Empty;
@@ -2869,7 +2873,7 @@ public PlanSetup CopyPlanSetup(
 				//cResults += Math.Round(BeamExtensions.EstimatedBeamOnTime(beam)).ToString("0") + " s\t" + (beam.ControlPoints.Count()) +"\n";
 				cResults += beam.EstimatedBeamOnTime() + " s\n";
 				beamOnTimeInSec += BeamExtensions.EstimatedBeamOnTime(beam);
-				
+
 
 
 				if (planCat == PlanCat.SBRT && beam.Technique.Id.Contains("SRS") == false)
@@ -2888,8 +2892,8 @@ public PlanSetup CopyPlanSetup(
 				}
 				if (beam.MLCPlanType == MLCPlanType.Static)
 				{
-                    if (planCat == PlanCat.SBRT)
-                    {
+					if (planCat == PlanCat.SBRT)
+					{
 						remarks += CheckMLCStaticFFF(plan, beam, ref countMLCStaticFFFRemarks);
 					}
 				}
@@ -2907,7 +2911,7 @@ public PlanSetup CopyPlanSetup(
 			{
 				remarks += "** Check the arc directions! \t";
 			}
-			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec/60).ToString("0.0") + " min\n\n" + "Estimated delivery time: > " + Math.Round(GetEstimatedTreatmentTime(plan)/60, 1).ToString("0.0") + " min\n" + remarks;
+			return cResults + "\n" + "Estimated total beam-on-time: " + (beamOnTimeInSec / 60).ToString("0.0") + " min\n\n" + "Estimated delivery time: > " + Math.Round(GetEstimatedTreatmentTime(plan) / 60, 1).ToString("0.0") + " min\n" + remarks;
 		}
 
 
@@ -2915,13 +2919,13 @@ public PlanSetup CopyPlanSetup(
 
 
 
-        /// <summary>
-        /// Estimates treatment time (excl. imaging) when using field order according to Beam ID
-        /// </summary>
-        /// <param name="plan"></param>
-        /// <returns></returns>
-        private double GetEstimatedTreatmentTime(PlanSetup plan)
-        {
+		/// <summary>
+		/// Estimates treatment time (excl. imaging) when using field order according to Beam ID
+		/// </summary>
+		/// <param name="plan"></param>
+		/// <returns></returns>
+		private double GetEstimatedTreatmentTime(PlanSetup plan)
+		{
 			double controlSeqTime;
 			double treatTime = 0;
 
@@ -2933,33 +2937,33 @@ public PlanSetup CopyPlanSetup(
 			List<ControlPoint> cpLast = new List<ControlPoint>();
 			List<Beam> beamsInOrder = new List<Beam>();
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
-            {
+			{
 				cpFirst.Add(beam.ControlPoints.First());
 				cpLast.Add(beam.ControlPoints.Last());
 				beamsInOrder.Add(beam);
 				treatTime += BeamExtensions.EstimatedBeamOnTime(beam);
-            }
+			}
 
 			// control sequens and energy change happens parallel with, and independent to, mechanical movements
-            for (int i = 1; i < cpFirst.Count(); i++)
-            {
-				mechMovementTime.Add(DeltaAngle(cpLast[i - 1].GantryAngle, cpFirst[i].GantryAngle)/Machine.GantryMaxSpeed);
+			for (int i = 1; i < cpFirst.Count(); i++)
+			{
+				mechMovementTime.Add(DeltaAngle(cpLast[i - 1].GantryAngle, cpFirst[i].GantryAngle) / Machine.GantryMaxSpeed);
 				mechMovementTime.Add(MaxDeltaJaw(cpLast[i - 1], cpFirst[i]) / Machine.JawXMaxSpeed);
-                if (beamsInOrder[i-1].EnergyModeDisplayName.Equals(beamsInOrder[i]))
-                {
+				if (beamsInOrder[i - 1].EnergyModeDisplayName.Equals(beamsInOrder[i]))
+				{
 					controlSeqTime = 10;
-                }
-                else
-                {
+				}
+				else
+				{
 					controlSeqTime = 20;
-                }
+				}
 
-                if (controlSeqTime > mechMovementTime.Max())
-                {
+				if (controlSeqTime > mechMovementTime.Max())
+				{
 					treatTime += controlSeqTime;
-                }
-                else
-                {
+				}
+				else
+				{
 					treatTime += mechMovementTime.Max();
 				}
 
@@ -2971,24 +2975,24 @@ public PlanSetup CopyPlanSetup(
 				}
 
 			}
-				return treatTime;
+			return treatTime;
 
-        }
+		}
 
 
 		private double DeltaAngle(Double angle1, Double angle2)
-        {
+		{
 			double dAngle = Math.Abs(angle2 - angle1);
 
 			if (dAngle > 180)
-            {
+			{
 				return 360 - dAngle;
 			}
-            else
-            {
+			else
+			{
 				return dAngle;
 			}
-        }
+		}
 
 
 
@@ -3002,10 +3006,10 @@ public PlanSetup CopyPlanSetup(
 		{
 			double[] deltaJaw = new double[4];
 
-				deltaJaw[0] = Math.Abs(cp2.JawPositions.X1 - cp1.JawPositions.X1);
-				deltaJaw[1] = Math.Abs(cp2.JawPositions.X2 - cp1.JawPositions.X2);
-				deltaJaw[2] = Math.Abs(cp2.JawPositions.Y1 - cp1.JawPositions.Y1);
-				deltaJaw[3] = Math.Abs(cp2.JawPositions.Y2 - cp1.JawPositions.Y2);
+			deltaJaw[0] = Math.Abs(cp2.JawPositions.X1 - cp1.JawPositions.X1);
+			deltaJaw[1] = Math.Abs(cp2.JawPositions.X2 - cp1.JawPositions.X2);
+			deltaJaw[2] = Math.Abs(cp2.JawPositions.Y1 - cp1.JawPositions.Y1);
+			deltaJaw[3] = Math.Abs(cp2.JawPositions.Y2 - cp1.JawPositions.Y2);
 
 			return deltaJaw.Max();
 		}
