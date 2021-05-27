@@ -2131,6 +2131,8 @@ public PlanSetup CopyPlanSetup(
 			targetStructures.AddRange(itvStruct);
 			targetStructures.AddRange(gtvStruct);
 
+
+			
 			string message = string.Empty;
 			foreach (var target in targetStructures)
 			{
@@ -2152,11 +2154,44 @@ public PlanSetup CopyPlanSetup(
 			{
                 if (targetNaming.IsMatch(target.Id) && targetNaming.Match(target.Id).Length == target.Id.Length)
                 {
-					message += target.Id + ": testing: namgivning ok. \n";
+					message += target.Id + ": okidoki. \n";
 				}
                 else
                 {
 					message += target.Id + ": namgivning verkar inte följa nationell standard. \n";
+				}
+			}
+
+			Structure body = ss.Structures.Where(s => s.DicomType == "BODY").SingleOrDefault();  // ***************** crashes if no BODY type found!
+			VVector bodyCenter = body.GeometricCenter();
+																						  // check position of target (L/R) compared to body center
+			foreach (var target in targetStructures)
+            {
+				if (targetNaming.Match(target.Id).Length == target.Id.Length && !string.IsNullOrEmpty(targetNaming.Match(target.Id).Groups["position"].Value))
+				{
+
+					switch (targetNaming.Match(target.Id).Groups["position"].Value)
+                    {
+
+						case "L":
+
+                            if (target.GeometricCenter().x < bodyCenter.x)
+                            {
+								message += target.Id + "Kontrollera namngivning, geometriskt center verkar vara till höger om BODY-center";
+                            }
+
+							break;
+						case "R":
+
+							if (target.GeometricCenter().x > bodyCenter.x)
+							{
+								message += target.Id + "Kontrollera namngivning, geometriskt center verkar vara till vänster om BODY-center";
+							}
+
+							break;
+                        default:
+                            break;
+                    }
 				}
 			}
 
@@ -2171,7 +2206,7 @@ public PlanSetup CopyPlanSetup(
                     string doseValueString = targetNaming.Match(ptv.Id).Groups["dose"].Value;
                     if (double.TryParse(doseValueString, out doseValue))
                     {
-                        message += ptv.Id + " testing: dose value = " + doseValue.ToString("0.00") + "Gy.\n\n";
+                        message += ptv.Id + " testing: dose value = " + doseValue.ToString("0.00") + " Gy.\n\n";
                     }
                 }
                 else
