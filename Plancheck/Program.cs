@@ -184,7 +184,7 @@ namespace VMS.TPS
 	{
 		public static bool AutomationPrerequisites(this PlanSetup plan)
 		{
-			//TODO: Missing check for same accessories for all beams
+			//TODO: Missing check for same accessories for all beams. Define accessories... wedges included?
 			if (plan.SingleIso() && plan.SingleCouchPosition() && plan.SingleEnergy())
 			{
 				return true;
@@ -215,14 +215,18 @@ namespace VMS.TPS
 			bool sEnergy = true;
 			Beam firstBeam = plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id).First();
 			foreach (var beam in plan.Beams.Where(b => !b.IsSetupField).OrderBy(b => b.Id))
-			{
-				if (!beam.EnergyModeDisplayName.Equals(firstBeam.EnergyModeDisplayName))
-				{
+            {
+                if (beam.EnergyModeDisplayName.Equals(firstBeam.EnergyModeDisplayName))
+                {
+                    continue;
+                }
+                else
+                {
 					sEnergy = false;
 					break;
 				}
-			}
-			return sEnergy;
+            }
+            return sEnergy;
 		}
 
 		public static bool SingleCouchPosition(this PlanSetup plan)
@@ -271,7 +275,7 @@ namespace VMS.TPS
 			int maxDoseRate = 0;
 			if (!Machine.DoseRates.TryGetValue(beam.EnergyModeDisplayName, out maxDoseRate))
 			{
-				MessageBox.Show(beam.EnergyModeDisplayName + " is not recognised as an active energy mode!");
+				MessageBox.Show($"{beam.EnergyModeDisplayName} is not recognised as an active energy mode!");
 				return true; // Ugly code to prevent it from crashing, fix this
 			}
 
@@ -469,6 +473,160 @@ namespace VMS.TPS
 			return Math.Abs(angleEnd - angleStart);
 		}
 	}
+
+
+	public class StructureModel
+    {
+		/*
+ * Order: by Id:  PTV, E_PTV, ITV, CTV, GTV, BODY, BolusIncluded in calc, Support,	 avoidance, organs and the rest, help structures, Bolus not included,	helpBolus, empty structures
+ * 
+ * Dicom type	description		volume		nrofparts	assigned hu		comment in eclipse	
+ */
+		public string Id { get; set; }
+        public string Type { get; set; }
+        public string Description { get; set; }
+        public bool Approved { get; set; }
+        public int? DoseValueInId { get; set; }
+        public double VolumeCC { get; set; }
+        public int NrOfParts { get; set; }
+        public double? AssignedHU { get; set; }
+        public string AriaComment { get; set; }
+        public List<string> Warnings { get; set; }
+		public List<string> Errors { get; set; }
+		public List<string> Comments { get; set; }
+        public bool HighRes { get; set; }
+
+        public enum  StructureType
+        {
+			PTV,
+			ITV,
+			CTV,
+			GTV,
+			EvalPTV,
+			BODY,
+			Support,
+
+        }
+
+		//Dicom type: Possible values are "AVOIDANCE", "CAVITY", "CONTRAST_AGENT", "CTV", "EXTERNAL", "GTV", "IRRAD_VOLUME", 
+		//"ORGAN", "PTV", "TREATED_VOLUME", "SUPPORT", "FIXATION", "CONTROL", and "DOSE_REGION". 
+		// where is ITV? 
+
+
+	}
+
+	public class StructureViewModel
+    {
+
+		public StructureViewModel(StructureSet ss)
+        {
+        //List<StructureModel> Structures = new List<StructureModel>();
+			GetStructureData(ss);
+		}
+
+		public List<StructureModel> Structures = new List<StructureModel>();
+
+		// structures included resp excluded in calculation (outside body and not bolus, empty)
+		// sort order type; ptv, ctv, itv, gtv 
+
+		private void GetStructureData(StructureSet ss)
+        {
+
+			List<Structure> ActiveStructures = new List<Structure>();
+			List<Structure> EmptyStructures = new List<Structure>();
+			string debug = string.Empty;
+			//EmptyStructures = ss.Structures.Where(s => s.HasSegment == false).ToList();
+			try
+			{
+				ActiveStructures = ss.Structures.Where(s => s.HasSegment).OrderBy(s => s.Id).ToList();
+				foreach (Structure str in ActiveStructures)
+				{
+					Structures.Add(new StructureModel
+					{
+						Warnings = new List<string>(),
+						Errors = new List<string>(),
+						Comments = new List<string>(),
+						Id = str.Id,
+						Type = str.DicomType,
+						Description = str.StructureCode.Code.FirstOrDefault().ToString(),
+						Approved = str.IsApproved,
+						AssignedHU = GetAssignedHU(str),
+						VolumeCC = str.Volume,
+						NrOfParts = str.GetNumberOfSeparateParts()
+
+
+
+
+				});
+
+
+				}
+
+
+
+				// add comments, warnings and errors
+				foreach (var strModel in Structures)
+				{
+					if (strModel.AssignedHU.HasValue && strModel.Id.Contains("Couch") == false)
+					{
+						strModel.Comments.Add("Houndsfieldvärde overrajdat");
+					}
+					debug += strModel.Id + "OK\n";
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+				}
+			}
+            catch (Exception e)
+            {
+				MessageBox.Show(e.Message + debug);
+            }
+        }
+
+
+		public double? GetAssignedHU(Structure str)
+        {
+			double? hu = null;
+			double huu;
+            if (str.GetAssignedHU(out huu))
+            {
+				hu = huu;
+            }
+			return hu;
+        }
+
+
+
+
+
+
+
+	}
+
+
+
+
+
+
+
+
 
 	public static class StructureExtensions
 	{
@@ -722,6 +880,29 @@ namespace VMS.TPS
 				else
 				{
 					StructureSet ss = context.StructureSet;
+
+
+					var structView = new StructureViewModel(ss);
+
+					string structMessage = string.Empty;
+
+                    foreach (var item in structView.Structures)
+                    {
+						structMessage += item.Id + "\t\t" + item.Type + "\n";
+                        if (item.Comments.Count > 0)
+                        {
+							structMessage += item.Comments[0];
+						}
+                        if (item.AssignedHU.HasValue)
+                        {
+							structMessage += item.AssignedHU.Value.ToString("0.0");
+						}
+					}
+					MessageBox.Show(structMessage);
+
+					
+
+
 					string messageTitle = "Quick check on structure set" + ss.Id;
 					string message = CheckStructureSet(ss) +
 					CheckCouchStructure(ss);
@@ -2109,6 +2290,16 @@ public PlanSetup CopyPlanSetup(
 			// SSM 2016:18 national nomenclature for structures in radiation therapy (ignores the fact that "/" also is ok for "free text" at the end)
 			Regex targetNaming = new Regex(@"^([GCIP]TV)(?<type>[TNM]?)(?<number>[1-9]?)(_(?<position>[LR]))?(_(?<dose>\d{1,2}(?:\.[0-9]{1,2})?))?(?:[\(](?<description>.+)[\)])?", RegexOptions.IgnoreCase);
 
+
+			/*
+			 * Order: by Id:  PTV, E_PTV, ITV, CTV, GTV, BODY, BolusIncluded in calc,	 avoidance, organs and the rest, help structures, Bolus not included,	helpBolus, empty structures
+			 * 
+			 * Dicom type	description		volume		nrofparts	assigned hu		comment in eclipse	
+			 */
+
+
+
+
 			StructureSet ss = plan.StructureSet;
 			// structures included resp excluded in calculation (outside body and not bolus, empty)
 			// sort order type; ptv, ctv, itv, gtv 
@@ -2167,7 +2358,7 @@ public PlanSetup CopyPlanSetup(
 
 			Structure body = ss.Structures.Where(s => s.DicomType == "EXTERNAL").SingleOrDefault();  // ***************** crashes if no BODY type found!
 			VVector bodyCenter = body.GeometricCenter();
-            //check position of target(L/ R) compared to body center
+            // TODO: generalize this for all structures. check position of target(L/ R) compared to body center
 
             foreach (var target in targetStructures)
             {
@@ -2869,7 +3060,7 @@ public PlanSetup CopyPlanSetup(
 			{
 				//BeamExtraInfo beamExtras = new BeamExtraInfo(beam);
 
-				cResults = cResults + beam.Id + "\t" + beam.EnergyModeDisplayName + "\t" + beam.Technique.Id + "\t" + beam.DoseRate + "\t" + beam.MLCPlanType + "\t";
+				cResults = cResults + beam.Id.PadRight(2) + "\t" + beam.EnergyModeDisplayName.PadRight(6) + "\t" + beam.Technique.Id + "\t" + beam.DoseRate.ToString().PadRight(4) + "\t" + beam.MLCPlanType + "\t";
 				//cResults += Math.Round(BeamExtensions.EstimatedBeamOnTime(beam)).ToString("0") + " s\t" + (beam.ControlPoints.Count()) +"\n";
 				cResults += beam.EstimatedBeamOnTime() + " s\n";
 				beamOnTimeInSec += BeamExtensions.EstimatedBeamOnTime(beam);
