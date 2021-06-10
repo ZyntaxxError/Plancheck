@@ -275,7 +275,7 @@ namespace VMS.TPS
 			int maxDoseRate = 0;
 			if (!Machine.DoseRates.TryGetValue(beam.EnergyModeDisplayName, out maxDoseRate))
 			{
-				MessageBox.Show($"{beam.EnergyModeDisplayName} is not recognised as an active energy mode!");
+				//MessageBox.Show($"{beam.EnergyModeDisplayName} is not recognised as an active energy mode!");
 				return true; // Ugly code to prevent it from crashing, fix this
 			}
 
@@ -502,9 +502,11 @@ namespace VMS.TPS
 			ITV,
 			CTV,
 			GTV,
-			EvalPTV,
+			EvaluationPTV,
 			BODY,
 			Support,
+			Optimisation,
+			EmtyStructures
 
         }
 
@@ -528,22 +530,56 @@ namespace VMS.TPS
 
 		// structures included resp excluded in calculation (outside body and not bolus, empty)
 		// sort order type; ptv, ctv, itv, gtv 
-
+		// TODO add check for _L and _R and check against structures assumed to be centered laterally, e.g. SpinalCanal, BrainStem, Esophagus etc
+		// make method for determining center (average of some relevant structures) in closest slice of the geometric or weighted center of the structure in question. 
 		private void GetStructureData(StructureSet ss)
         {
 
-			List<Structure> ActiveStructures = new List<Structure>();
+			List<Structure> activeStructures = new List<Structure>();
 			List<Structure> EmptyStructures = new List<Structure>();
+			//List<Structure> orderedStructures = activeStructures.OrderByDescending(s => s.Id.Substring(0, 3) == "PTV").ThenByDescending(s => s.Id.Substring(0, 3) == "CTV").ThenByDescending(s => s.Id.Substring(0, 3) == "GTV").ToList();
 			string debug = string.Empty;
 			//EmptyStructures = ss.Structures.Where(s => s.HasSegment == false).ToList();
 			try
 			{
-				ActiveStructures = ss.Structures.Where(s => s.HasSegment).OrderBy(s => s.Id).ToList();
-				foreach (Structure str in ActiveStructures)
+				// can perhaps use a dictionary for sort order. Other order is by dose value if applicable for targets
+				activeStructures = (from s in ss.Structures where s.HasSegment orderby 
+									s.Id.StartsWith("PTV") descending,
+									s.Id.ToUpper().StartsWith("E_PTV") descending,
+									s.Id.StartsWith("ITV") descending,
+									s.Id.StartsWith("CTV") descending,
+									s.Id.StartsWith("GTV") descending,
+									s.DicomType == "EXTERNAL" descending,
+									s.DicomType == "SUPPORT" ascending,
+									s.Id ascending
+									select s).ToList();
+
+
+
+
+
+
+				// get centerstructures to use in left vs right side naming check
+
+
+
+
+				foreach (Structure str in activeStructures)
 				{
+
+					List<string> Warn = new List<string>();
+					// right place to make list of warnings etc?
+
+
+					string WarningDirection = CheckLeftRightSide(str);
+					if (!string.IsNullOrEmpty(WarningDirection)) Warn.Add(WarningDirection);
+
+
+
+
 					Structures.Add(new StructureModel
 					{
-						Warnings = new List<string>(),
+						Warnings = Warn,
 						Errors = new List<string>(),
 						Comments = new List<string>(),
 						Id = str.Id,
@@ -553,14 +589,10 @@ namespace VMS.TPS
 						AssignedHU = GetAssignedHU(str),
 						VolumeCC = str.Volume,
 						NrOfParts = str.GetNumberOfSeparateParts()
-
-
-
-
-				});
-
-
+					});
 				}
+
+				
 
 
 
@@ -575,33 +607,49 @@ namespace VMS.TPS
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+					// check if the notation left and right exists and in that case that its actually true 
 
 
 
 
 				}
+
+
 			}
             catch (Exception e)
             {
-				MessageBox.Show(e.Message + debug);
+				MessageBox.Show(e.Message + debug + "\nFAIL!! not all structures will be included in list");
             }
         }
 
+        private string CheckLeftRightSide(Structure str)
+        {
+			string retval = string.Empty;
+			if (str.Id.Contains("_L"))
+			{
+				retval = "Left side";
 
-		public double? GetAssignedHU(Structure str)
+			}
+            else if(str.Id.Contains("_R"))
+            {
+				retval = "Right side";
+			}
+			return retval;
+		}
+
+        private string StructureWarnings(Structure str)
+        {
+			string retval = string.Empty;
+            if (str.Id.Contains("_L"))
+            {
+				retval = "Leftscrewed";
+            }
+			return retval;
+        }
+
+
+
+        public double? GetAssignedHU(Structure str)
         {
 			double? hu = null;
 			double huu;
@@ -611,20 +659,7 @@ namespace VMS.TPS
             }
 			return hu;
         }
-
-
-
-
-
-
-
 	}
-
-
-
-
-
-
 
 
 
@@ -654,7 +689,7 @@ namespace VMS.TPS
 		public static VVector GeometricCenterClosestSlice(this Structure structure, StructureSet ss, VVector pos)
 		{
 			Image image = ss.Image;
-			int slice = image.ClosestSlice(pos);
+			int slice = image.ClosestSliceNumber(pos);
 			VVector[][] contour = structure.GetContoursOnImagePlane(slice);
 			// remake the jagged array to 1-D List
 			List<VVector> flattenPoints = new List<VVector>();
@@ -725,20 +760,6 @@ namespace VMS.TPS
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 		/// <summary>
 		/// Maximum distance [mm] in x-y-plane from given Dicom coordinate to exitpoint of structure
 		/// TODO: investigate if this could be used instead: VVector[][] contour = structure.GetContoursOnImagePlane(slize_z)
@@ -749,9 +770,10 @@ namespace VMS.TPS
 		public static double MaxDistToStructureContourExit(this Structure structure, StructureSet ss, VVector pos)
 		{
 			Image image = ss.Image;
-			int slice = image.ClosestSlice(pos);
+			int slice = image.ClosestSliceNumber(pos);
 			double maxDistance = 0;
 			VVector[][] contour = structure.GetContoursOnImagePlane(slice);
+
 
 			foreach (var arr in contour)
 			{
@@ -767,12 +789,6 @@ namespace VMS.TPS
 			}
 			return maxDistance;
 		}
-
-
-
-
-
-
 
 
 
@@ -810,32 +826,30 @@ namespace VMS.TPS
 
 			return dist.Max();
 		}
-
-
 	}
 
 
 	public static class ImageExtensions
 	{
 		/// <summary>
-		/// Calculates closest slice number in image from given Dicom position.
+		/// Calculates closest slice number in image from given Dicom position. Slice number starts
+		/// from index 1 in caudal-cranial direction.
 		/// </summary>
 		/// <param name="image"></param>
 		/// <param name="pos"></param>
 		/// <returns>Slice number enumerated in caudal-cranial direction</returns>
-		public static int ClosestSlice(this Image image, VVector pos)
+		public static int ClosestSliceNumber(this Image image, VVector pos)
 		{
 			double distanceFromOrigin = Math.Abs(pos.z - image.Origin.z) / image.ZRes;
 			int sliceNumber = (int)Math.Round(distanceFromOrigin) + 1;
 			return sliceNumber;
 		}
-		public static int ClosestSlice(this Image image, double zPos)
+		public static int ClosestSliceNumber(this Image image, double zPos)
 		{
 			double distanceFromOrigin = Math.Abs(zPos - image.Origin.z) / image.ZRes;
 			int sliceNumber = (int)Math.Round(distanceFromOrigin) + 1;
 			return sliceNumber;
 		}
-
 	}
 
 
@@ -882,22 +896,25 @@ namespace VMS.TPS
 					StructureSet ss = context.StructureSet;
 
 
-					var structView = new StructureViewModel(ss);
+					var structViewModel = new StructureViewModel(ss);
+
+					//List<StructureModel> test = structViewModel.Structures.OrderBy(s => s.Type == "PTV").ToList();
 
 					string structMessage = string.Empty;
 
-                    foreach (var item in structView.Structures)
+                    foreach (var item in structViewModel.Structures)   
                     {
-						structMessage += item.Id + "\t\t" + item.Type + "\n";
-                        if (item.Comments.Count > 0)
+						structMessage += item.Id.PadRight(20) + "\t" + item.Type.PadRight(15) + "\t" + item.VolumeCC.ToString("0.0") + "\n";
+                        if (item.Warnings.Count > 0)
                         {
-							structMessage += item.Comments[0];
+							structMessage += item.Warnings[0] + "\n";
 						}
-                        if (item.AssignedHU.HasValue)
-                        {
-							structMessage += item.AssignedHU.Value.ToString("0.0");
-						}
+      //                  if (item.AssignedHU.HasValue)
+      //                  {
+						//	structMessage += item.AssignedHU.Value.ToString("0.0");
+						//}
 					}
+
 					MessageBox.Show(structMessage);
 
 					
@@ -1228,7 +1245,7 @@ public PlanSetup CopyPlanSetup(
 		// When calculating FFS check if it is OK to separate delta, and in that case allow smaller deltashift for HFS -> more overlap means prob better plan
 		// deltashift in steps of 5 mm would make planning easier...
 		// Order for manual plan;  suggested iso, place isos and copy to FFS i.e make base dose plan in HFS using image in FFS, check suggested isos, if mucho overlap, decrease delta HFS
-
+		// Check lungs for separate parts, should be 1?
 		// operlap structures in border between HFS and FFS to 
 
 
@@ -2410,7 +2427,7 @@ public PlanSetup CopyPlanSetup(
 				}
 
 				double caud = ptv.MeshGeometry.Bounds.Z;
-				message += "Testing: " + ptv.Id + ": starts from slice " + ss.Image.ClosestSlice(caud) + "\n";
+				message += "Testing: " + ptv.Id + ": starts from slice " + ss.Image.ClosestSliceNumber(caud) + "\n";
 			}
 
 
