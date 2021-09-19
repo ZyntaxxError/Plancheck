@@ -1049,13 +1049,82 @@ namespace VMS.TPS
 		#region TMI operations
 
 		//TODO: compare body bounds with image size and check if margin is enough
-		// assuming we have two CT, BODY is contoured on both, possible to calculate total length; detemining factor for iso distances and field sizes
+		// assuming we have two CT, BODY is contoured on both, possible to calculate total length; determining factor for iso distances and field sizes
 		// Dicom coordinates last iso HFS to FFS-CT?
 
 
 		//TODO: error handling; check for prereq: Structures needed etc
 		// for FFS AND Base dose plan: approved registration with only translations (registration direction?)
 		// check naming of image and structure set
+
+
+		/*
+		 * Base: check context, 
+		 * if OPT structureset with no plan;
+		 * check structures 
+		 * Look for matching structureset 
+		 * 
+		 * if only one OPT exists; 
+		 *	assume short patient, only HFS
+		 *	look for approved stucture maxdistance (z_90?)
+		 *	Check body vs image
+		 *	suggest isos HFS and FFS (*1*)
+		 *	
+		 * if two matching exists;
+		 *	check for match approved 
+		 *	look for approved stucture maxdistance in both images (z_90)
+		 *	compare body in overlap region
+		 *	Check body vs image
+		 *	suggest isos HFS and FFS (*1*)
+		 * 
+		 * Remainders: 
+		 * 
+		 * 
+		 * 
+		 * If plan CX OPT HFS without dose
+		 * check isos for coverage zptv1-5
+		 * check coverage at intersects
+		 * check for bolus attached to fields
+		 * check PTV in all directions
+		 * check position of Z_PTV5, and no gap between z_ptv:s
+		 * check optimization parameters , no jawtracking
+		 * 
+		 * 
+		 * Remainders: remove couch position, extend calculation volume to encompass PTV_Total ( in caudal direction at least body to use calculated dose in re-optimajsäjschön)
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * Methods to make : Look for structureset CX OPT HFS
+		 * 
+		 * 
+		 * 
+		 * (*1*) 
+		 * suggestion 1: independent suggestions for HFS and FFS
+		 * suggestion 2: (if possible without increasing number of isos FFS and not violating maxdistance in either direction)
+		 * increase delta distance for FFS and decrease for HFS
+		 * suggestion 3: absolute minimum number of iso (with uneven delta), only for wery tall patients... if then
+		 * Suggestion 4: cutoff at shoulders, in that case probably 6 iso HFS...
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * 
+		 * */
+
+
 
 
 
@@ -1427,7 +1496,7 @@ public PlanSetup CopyPlanSetup(
 			return image.UserToDicom(eclipseRound, plan);
 		}
 
-		// TODO: what happens if enough with image in HFS
+		// TODO: what happens if enough with one image in HFS
 		// prereq: user origo placed in iso 5 from HFS-plan
 		// can use coordinates from Base dose HFS, as the isocenters may not have been placed according to suggestion... 
 		// TODO: Special case that need to be handled; short patient, enough with 1 isocenters, well... no need for script in that case if not used for auto plan
@@ -1447,7 +1516,7 @@ public PlanSetup CopyPlanSetup(
 
 			Structure ptvTotal = ss.Structures.Where(s => s.Id == "PTV_Total").SingleOrDefault();  // TODO: better to take dicom type
 
-			// origo should be placed at the last isocenter in HFS plan (P5)
+			// origo should be placed at the last isocenter in HFS plan (P5) (TODO: not according to instruction...)
 			VVector lastIsoHFS = ss.Image.UserOrigin;
 
 			// Determine position of first iso FFS separately as field size for HFS is smaller which means junction in different place
@@ -1476,7 +1545,7 @@ public PlanSetup CopyPlanSetup(
 			List<VVector> junctionPositions = new List<VVector>();
 
 			// Iteration; start with maximum delta, calculate nr of isos necessary, check if overlap occurs in the 
-			//junction regions for all angles, if not; increase nr of isos and check again until minimmum acceptable delta reached. 
+			//junction regions for all angles, if not; increase nr of isos and check again until minimum acceptable delta reached. 
 			for (int nriso = minNrOfIsos; nriso <= 8; nriso++)
 			{
 				isos.Add(firstIsoFFS);
