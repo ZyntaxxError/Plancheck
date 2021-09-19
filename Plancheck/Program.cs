@@ -3189,6 +3189,7 @@ public PlanSetup CopyPlanSetup(
 				cpLast.Add(beam.ControlPoints.Last());
 				beamsInOrder.Add(beam);
 				treatTime += BeamExtensions.EstimatedBeamOnTime(beam);
+				
 			}
 
 			// control sequens and energy change happens parallel with, and independent to, mechanical movements
