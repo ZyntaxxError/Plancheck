@@ -555,35 +555,20 @@ namespace VMS.TPS
 									select s).ToList();
 
 
-
-
-
-
-				// get centerstructures to use in left vs right side naming check
-
-
-
-
 				foreach (Structure str in activeStructures)
 				{
 
-					List<string> Warn = new List<string>();
-					// right place to make list of warnings etc?
-
-
-					string WarningDirection = CheckLeftRightSide(str);
-					if (!string.IsNullOrEmpty(WarningDirection)) Warn.Add(WarningDirection);
-
-
+					List<string> Warn = GetStructureWarnings(str, ss);
+					List<string> Err = GetStructureErrors(str, ss);
 
 
 					Structures.Add(new StructureModel
 					{
 						Warnings = Warn,
-						Errors = new List<string>(),
+						Errors = Err,
 						Comments = new List<string>(),
 						Id = str.Id,
-						Type = str.DicomType,
+						Type = GetStructureType(str),
 						Description = str.StructureCode.Code.FirstOrDefault().ToString(),
 						Approved = str.IsApproved,
 						AssignedHU = GetAssignedHU(str),
@@ -593,9 +578,6 @@ namespace VMS.TPS
 				}
 
 				
-
-
-
 				// add comments, warnings and errors
 				foreach (var strModel in Structures)
 				{
@@ -605,16 +587,7 @@ namespace VMS.TPS
 					}
 					debug += strModel.Id + "OK\n";
 
-
-
-					// check if the notation left and right exists and in that case that its actually true 
-
-
-
-
 				}
-
-
 			}
             catch (Exception e)
             {
@@ -622,30 +595,96 @@ namespace VMS.TPS
             }
         }
 
-        private string CheckLeftRightSide(Structure str)
+        private string GetStructureType(Structure str)
+        {
+            throw new NotImplementedException();
+        }
+
+
+        // SSM 2016:18 national nomenclature for target structures in radiation therapy (ignores the fact that "/" also is ok for "free text" at the end)
+        Regex targetNaming = new Regex(@"^([GCIP]TV)(?<type>[TNM]?)(?<number>[1-9]?)(_(?<position>[LR]))?(_(?<dose>\d{1,2}(?:\.[0-9]{1,2})?))?(?:[\(](?<description>.+)[\)])?", RegexOptions.IgnoreCase);
+
+
+		private List<string> GetStructureWarnings(Structure str, StructureSet ss)
+        {
+			List<string> Warn = new List<string>();
+
+
+			string WarningDirection = CheckLeftRightSide(str, ss);
+			if (!string.IsNullOrEmpty(WarningDirection)) Warn.Add(WarningDirection);
+
+			return Warn;
+		}
+
+
+		private List<string> GetStructureErrors(Structure str, StructureSet ss)
+		{
+			List<string> Err = new List<string>();
+
+
+			string WarningDirection = CheckLeftRightSide(str, ss);
+			if (!string.IsNullOrEmpty(WarningDirection)) Err.Add(WarningDirection);
+
+			return Err;
+		}
+
+
+
+
+
+        private string CheckLeftRightSide(Structure str, StructureSet ss)
         {
 			string retval = string.Empty;
-			if (str.Id.Contains("_L"))
-			{
-				retval = "Left side";
-
-			}
-            else if(str.Id.Contains("_R"))
+			if ((str.Id.Contains("_L") || str.Id.Contains("_R")) && str.Id.ToUpper().StartsWith("Z") == false)
             {
-				retval = "Right side";
+
+				VVector strMidpoint = str.GeometricCenter();
+				// Get VVector of structure assumed to be mid body e.g. SpinalCanal, BrainStem, Esophagus etc. to compare lateral position with.
+				VVector patMidpoint = PatientMidpoint(ss, strMidpoint);
+
+				if (str.Id.Contains("_L") && strMidpoint.x < patMidpoint.x)
+				{
+					retval = "Kontrollera om betecknngen \"_L\" stämmer.";
+				}
+				else if (str.Id.Contains("_R") && strMidpoint.x > patMidpoint.x)
+				{
+					retval = "Kontrollera om betecknngen \"_R\" stämmer.";
+				}
 			}
 			return retval;
 		}
 
-        private string StructureWarnings(Structure str)
+        private VVector PatientMidpoint(StructureSet ss, VVector searchPos)
         {
-			string retval = string.Empty;
-            if (str.Id.Contains("_L"))
+			Image image = ss.Image;
+			VVector midPat = image.Origin;
+
+			// If no structures found that can be compared to, return middle of image
+			midPat.x += image.XRes * image.XSize / 2;
+
+			string[] midStructures =
+			{
+				"SpinalCanal",
+				"BrainStem",
+				"Esophagus",
+				"Rectum",
+				"BODY"
+			};
+
+			//int slice = ss.Image.ClosestSliceNumber(searchPos);
+            foreach (var item in midStructures)
             {
-				retval = "Leftscrewed";
-            }
-			return retval;
+				var midStr = ss.Structures.Where(s => s.Id == item).SingleOrDefault();
+				if (midStr != null && midStr.HasSegment)
+				{
+					midPat = midStr.GeometricCenter();
+					break;
+				}
+			}
+			return midPat;
         }
+
+
 
 
 
@@ -2304,7 +2343,7 @@ public PlanSetup CopyPlanSetup(
 		{
 			// From dose value and plan dose recommend isodose lines?
 
-			// SSM 2016:18 national nomenclature for structures in radiation therapy (ignores the fact that "/" also is ok for "free text" at the end)
+			// SSM 2016:18 national nomenclature for target structures in radiation therapy (ignores the fact that "/" also is ok for "free text" at the end)
 			Regex targetNaming = new Regex(@"^([GCIP]TV)(?<type>[TNM]?)(?<number>[1-9]?)(_(?<position>[LR]))?(_(?<dose>\d{1,2}(?:\.[0-9]{1,2})?))?(?:[\(](?<description>.+)[\)])?", RegexOptions.IgnoreCase);
 
 
